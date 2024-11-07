@@ -1,0 +1,10 @@
+# Ignore everything
+*
+
+# Allow directories to be tracked
+!*/
+
+!.gitignore
+!.clangd
+!*.c
+!*.md
