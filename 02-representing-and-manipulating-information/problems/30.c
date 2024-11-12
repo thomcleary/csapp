@@ -10,7 +10,6 @@ overflow
 
 #include <assert.h>
 #include <limits.h>
-#include <stdio.h>
 
 int tadd_ok(int x, int y) {
   int result = x + y;
