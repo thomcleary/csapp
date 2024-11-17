@@ -6,5 +6,6 @@
 
 !.gitignore
 !.clangd
+!.clang-format
 !*.c
 !*.md
