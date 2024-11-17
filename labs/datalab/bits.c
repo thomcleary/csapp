@@ -173,7 +173,21 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-  return 2;
+  // Will be 0x80000000 when x is Tmax
+  int x_plus_one = x + 1;
+
+  // x+1 == ~Tmax, when x=Tmax
+  // x^y will evaluate to 0 when x==y
+  int x_plus_one_is_x_negated = !(x_plus_one ^ ~x);
+
+  // However, x+1 == 0, when x=(-1)
+  // ~(-1) == 0, ~0xFFFFFFFF = 0x00000000
+  // So x_plus_one_is_x_negated == 1
+  // !(0 ^ 0) == 1
+
+  // Need to also check that x != (-1)
+  // If x_plus_one is 0, x == (-1)
+  return x_plus_one_is_x_negated & !!x_plus_one;
 }
 
 // 2
