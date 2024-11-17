@@ -234,7 +234,19 @@ int negate(int x) {
  *   Rating: 3
  */
 int isAsciiDigit(int x) {
-  return 2;
+  int high_nibble_mask = 0x30;
+  int x_without_low_nibble = x & (~0xF);
+  int matches_high_nibble = !(high_nibble_mask ^ x_without_low_nibble);
+
+  // The low nibble is invalid if the most signficant bit is 1
+  // AND
+  // either the 2nd and/or 3rd bit is 1
+  // low_nibble >= 0xA, since largest ascii digit is 9, 0x9, 0b1001
+  int x_low_nibble = x & (0xF);
+  int high_bit = !!(0x8 & x_low_nibble);
+  int middle_bits = !!(0x6 & x_low_nibble);
+
+  return matches_high_nibble & !(high_bit & middle_bits);
 }
 
 /*
