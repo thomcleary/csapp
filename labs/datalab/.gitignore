@@ -2,10 +2,10 @@
 !btest.h
 !datalab.pdf
 !dlc
-!docker-run.sh
 !Dockerfile
 !driver.pl
 !Driverhdrs.pm
 !Driverlib.pm
 !Makefile
 !README
+!test.sh

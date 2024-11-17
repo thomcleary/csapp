@@ -145,7 +145,14 @@ NOTES:
  *   Rating: 1
  */
 int bitXor(int x, int y) {
-  return 2;
+  // Determine bits that are 1 in both x and y
+  int both_one = x & y;
+
+  // Determine bits that are 0 in both x and y
+  int both_zero = ~x & ~y;
+
+  // Return the bits that do not match in x and y
+  return ~both_one & ~both_zero;
 }
 
 /*
