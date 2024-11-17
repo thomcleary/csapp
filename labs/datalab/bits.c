@@ -257,7 +257,11 @@ int isAsciiDigit(int x) {
  *   Rating: 3
  */
 int conditional(int x, int y, int z) {
-  return 2;
+  int sign_extended = (!!x << 31) >> 31;
+  int y_result = sign_extended & y;
+  int z_result = ~sign_extended & z;
+
+  return y_result | z_result;
 }
 
 /*
