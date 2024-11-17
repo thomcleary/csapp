@@ -201,7 +201,15 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
-  return 2;
+  int odd_bits = 0xAA;
+
+  // Construct 0xAAAAAAAA (all odd bits)
+  int mask = (odd_bits << 24) | (odd_bits << 16) | (odd_bits << 8) | odd_bits;
+
+  // mask & x -> (get all odd bits of x)
+  // (mask & x) ^ mask -> (if x ==  mask, ^ against mask will result in 0)
+  // return ! of the result
+  return !((mask & x) ^ mask);
 }
 
 /*
