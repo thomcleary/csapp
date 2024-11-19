@@ -322,7 +322,58 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-  return 0;
+  // 0 if x is positive, -1 (all 1s) if x is negative
+  int bits = 0;
+  int x_sign = (x >> 31);
+
+  // If x is negative (sign is all 1s), then negate x's bits
+  // Equivalent of absolute(x) - 1, since -x = ~x + 1
+  // In some cases, the positive version of x requires 1 more bit than its
+  // negative inverse
+  // +2 requires 3 bits 010 (signbit + 10bits)
+  // -2 requires 2 bits  10 (signbit + 1bit), since inverse is 01 = 2-1 = 1
+  x = x ^ x_sign;
+
+  // Binary search for the most signficant bit
+  // 0000_0000_0100_0000_0000_0000_0000
+
+  bits = !!(x >> 16) << 4;
+  // 0000_0000_0000_0000_[0000_0000_0100_0000]..._0000_0000_0000_0000
+  // There is a 1 in the high 16 bits, the low 16 bits are required
+  // Reduce search to the top 16 bits
+
+  bits += !!(x >> (bits + 8)) << 3;
+  // x >> (16 + 8)
+  // 0000_0000_0000_0000_0000_0000_[0000_0000]..._1000_0000_0000_0000_0000_0000
+  // There is no 1 in the top 8 (32-24) bits
+  // bits remains at 16
+
+  bits += !!(x >> (bits + 4)) << 2;
+  // x >> (16 + 4)
+  // 0000_0000_0000_0000_0000_0000_0000_[0100]..._0000_0000_0000
+  // There is a 1 in the top 12 (32-20) bits, at least 20 bits are required
+  // Reduce search to the top 16 + 4 bits
+
+  bits += !!(x >> (bits + 2)) << 1;
+  // x >> (20 + 2)
+  // 0000_0000_0000_0000_0000_0000_0000_[01]...00_0000_0000_0000
+  // There is a 1 in the top 10 (32-22) bits, at least 22 bits are required
+  // Reduce search to the top 20 + 2 bits
+
+  bits += !!(x >> (bits + 1));
+  // x >> (22 + 1)
+  // 0000_0000_0000_0000_0000_0000_0000_[0]...100_0000_0000_0000
+  // There is no 1 in the top 9 (32-23) bits
+  // bits remain at 22
+
+  bits += !!(x >> bits);
+  // Add the position of the most significant bit
+  // x >> 22
+  // 0000_0000_0000_0000_0000_0000_0000_0[1]...00_0000_0000_0000
+  // Bits finishes at 22+1 = 23 bits are required
+
+  // +1 for the sign bit
+  return bits + 1;
 }
 
 // float
