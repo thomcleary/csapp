@@ -286,7 +286,16 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4
  */
 int logicalNeg(int x) {
-  return 2;
+  // When x != 0, either x or -x will have a sign bit of 1
+  // When x == 0, x and -x will both have a sign bit of 0
+
+  // Arithmetic shift will make all bits equal to the sign bit
+  int x_sign = x >> 31;
+  int x_negated_sign = (~x + 1) >> 31;
+
+  // If x == 0, (x_sign | x_negated_sign) -> (all zeros) == 0
+  // If x != 0, (x_sign | x_negated_sign) -> (all ones) == -1
+  return (x_sign | x_negated_sign) + 1;
 }
 
 /* howManyBits - return the minimum number of bits required to represent x in
