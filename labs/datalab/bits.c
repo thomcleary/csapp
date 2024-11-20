@@ -414,7 +414,7 @@ unsigned floatScale2(unsigned uf) {
   }
 
   // normalised value
-  // add 1 to exponent to scale by 2 (increases power of 2 in Mx2^E by 1)
+  // add 1 to exponent to scale by 2 (increases power of 2 in (M * 2^E) by 1)
   exponent = (exponent_val + 1) << significand_size;
 
   // if exponent + 1 == All 1's (Infinity)
@@ -501,5 +501,27 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-  return 2;
+  int bias = 127;
+  unsigned required_exponent = x + bias;
+  unsigned significand_size = 23;
+
+  // Denormalised exponent is all zeros
+  // E = 1 - Bias
+  // E = 1 - 127
+  // E = -126
+  // Can't get smaller precision than this, round to 0
+  if (x < (1 - bias)) {
+    return 0;
+  }
+
+  // Normalised exponent ranges from [1, 254]
+  // E = exponent + Bias = x
+  // E = 1 - 127 = -126
+  // E = 254 - 127 = 127
+  // E = 255 - 127 = 128 (exponent all 1's, Infinity/NaN)
+  if (x >= (0xFF - bias)) {
+    return 0x7F800000; // +Infinity
+  }
+
+  return required_exponent << significand_size;
 }
