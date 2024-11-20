@@ -390,7 +390,40 @@ int howManyBits(int x) {
  *   Rating: 4
  */
 unsigned floatScale2(unsigned uf) {
-  return 2;
+  const unsigned sign_mask = 0x80000000;
+  const unsigned sign = uf & sign_mask;
+
+  const unsigned significand_size = 23;
+  const unsigned significand_mask = 0x007FFFFF;
+  unsigned significand = uf & significand_mask;
+
+  const unsigned exponent_mask = 0x7F800000;
+  unsigned exponent = uf & exponent_mask;
+  const unsigned exponent_val = exponent >> significand_size;
+
+  const unsigned is_inf_or_nan = exponent == exponent_mask;
+  const unsigned is_denorm = !exponent;
+
+  if (is_inf_or_nan) {
+    return uf;
+  }
+
+  if (is_denorm) {
+    // Scaling normalised values by 2 is a simple left bit shift
+    return sign | (significand << 1);
+  }
+
+  // normalised value
+  // add 1 to exponent to scale by 2 (increases power of 2 in Mx2^E by 1)
+  exponent = (exponent_val + 1) << significand_size;
+
+  // if exponent + 1 == All 1's (Infinity)
+  // set significand bits to 0 (any 1 bit would mean NaN)
+  if (exponent == exponent_mask) {
+    return sign | exponent;
+  }
+
+  return sign | exponent | significand;
 }
 
 /*
