@@ -439,7 +439,52 @@ unsigned floatScale2(unsigned uf) {
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-  return 2;
+  const unsigned sign_mask = 0x80000000;
+  const unsigned sign = uf & sign_mask;
+
+  const unsigned significand_size = 23;
+  const unsigned significand_mask = 0x007FFFFF;
+  unsigned significand = uf & significand_mask;
+
+  const unsigned exponent_mask = 0x7F800000;
+  const unsigned exponent = (uf & exponent_mask) >> significand_size;
+  const int exponent_val = exponent - 127;
+
+  // Value will be larger than largest possible int
+  if (exponent_val > 31) {
+    return 0x80000000;
+  }
+
+  // Value is less than 1, so will be truncated to 0
+  if (exponent_val < 0) {
+    return 0;
+  }
+
+  // Normalised values have implicit 1 added to significand
+  // Add a leading one (1 to the left of the binary point)
+  // 0.110011...1 -> 1.110011...1
+  significand = significand | (1 << 23);
+
+  // Now the significand represents the int but  shifted 23 places to the
+  // right.
+  // (1, followed by the binary point, followed by 23 0s/1s)
+
+  // The integer (before introducing the binary point) will have been
+  // shifted between 0-31 places to the right of the binary point.
+
+  // Need to correct to the right amount of shifts
+  if (exponent_val < 23) {
+    significand >>= (23 - exponent_val);
+  } else {
+    significand <<= (exponent_val - 23);
+  }
+
+  // Convert to negative, if sign bit set
+  if (sign) {
+    significand = -significand;
+  }
+
+  return significand;
 }
 
 /*
