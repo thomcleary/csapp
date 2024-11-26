@@ -1,0 +1,7 @@
+services:
+  devcontainer:
+    build: .
+    tty: true
+    stdin_open: true
+    volumes:
+      - ./:/csapp

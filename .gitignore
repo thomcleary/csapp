@@ -7,8 +7,7 @@
 !.gitignore
 !.clang-format
 !.clangd
-!docker-build.sh
-!docker-run.sh
+!compose.yaml
 !Dockerfile
 !*.c
 !*.md

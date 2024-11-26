@@ -5,3 +5,9 @@
 ## See also
 
 - https://www.cs.cmu.edu/~213/schedule.html
+
+## Setup
+
+```shell
+docker compose run --rm devcontainer
+```
