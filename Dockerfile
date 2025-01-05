@@ -6,7 +6,7 @@ RUN apt-get update && \
     apt-get -y install unminimize && \
     (echo "y"; echo "y") | unminimize
 
-RUN apt-get -y install wget gcc make gdb perl man-db manpages curl fish bat less
+RUN apt-get -y install wget gcc make gdb valgrind perl man-db manpages curl fish bat less
 
 # Install the Getopt::Std module for Perl
 # Required for datalab/driver.pl

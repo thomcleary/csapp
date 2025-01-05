@@ -10,5 +10,7 @@
 !compose.yaml
 !Dockerfile
 !*.c
+!*.h
 !*.s
 !*.md
+!*.pdf
