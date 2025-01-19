@@ -11,6 +11,7 @@ $ objdump -t bomb
 ```shell
 $ objdump -d bomb > disassembly.asm
 $ objdump -s -j .rodata bomb >> disassembly.asm
+$ objdump -d -j .data bomb >> disassembly.asm
 ```
 
 ## Strings
@@ -380,8 +381,165 @@ void phase_3(char *input) {
 
 ## Phase 6
 
-TODO
+```asm
+00000000004010f4 <phase_6>:
+  4010f4:	41 56                	push   %r14                         # save callee-saved registers
+  4010f6:	41 55                	push   %r13                         #
+  4010f8:	41 54                	push   %r12                         #
+  4010fa:	55                   	push   %rbp                         #
+  4010fb:	53                   	push   %rbx                         #
+  4010fc:	48 83 ec 50          	sub    $0x50,%rsp                   # allocate stack frame (80 bytes)
+  401100:	49 89 e5             	mov    %rsp,%r13                    # r13 = rsp
+  401103:	48 89 e6             	mov    %rsp,%rsi                    # rsi = rsp (numbers[6])
+  401106:	e8 51 03 00 00       	call   40145c <read_six_numbers>    # read_six_numbers(rdi, rsi)
+  40110b:	49 89 e6             	mov    %rsp,%r14                    # r14 = rsp
+  40110e:	41 bc 00 00 00 00    	mov    $0x0,%r12d                   # r12 = 0
+  401114:	4c 89 ed             	mov    %r13,%rbp                    # rbp = r13
+  401117:	41 8b 45 00          	mov    0x0(%r13),%eax               # rax = r13
+  40111b:	83 e8 01             	sub    $0x1,%eax                    # rax -= 1
+  40111e:	83 f8 05             	cmp    $0x5,%eax                    # compare (rax - 5)
+  401121:	76 05                	jbe    401128 <phase_6+0x34>        # if rax <= 5: goto 401128 (if first number <= 6)
+  401123:	e8 12 03 00 00       	call   40143a <explode_bomb>        # else: explode_bomb()
+  401128:	41 83 c4 01          	add    $0x1,%r12d                   # r12 += 1
+  40112c:	41 83 fc 06          	cmp    $0x6,%r12d                   # compare (r12 - 6)
+  401130:	74 21                	je     401153 <phase_6+0x5f>        # if r2 == 6: goto 401153
+  401132:	44 89 e3             	mov    %r12d,%ebx                   # rbx = r12
+  401135:	48 63 c3             	movslq %ebx,%rax                    # rax = rax << rbx
+  401138:	8b 04 84             	mov    (%rsp,%rax,4),%eax           # rax = rsp + 4*rax
+  40113b:	39 45 00             	cmp    %eax,0x0(%rbp)               # compare (*rbp - rax)
+  40113e:	75 05                	jne    401145 <phase_6+0x51>        # if *rbp - rax != 0: goto 401145
+  401140:	e8 f5 02 00 00       	call   40143a <explode_bomb>        # else: explode_bomb()
+  401145:	83 c3 01             	add    $0x1,%ebx                    # rbx += 1
+  401148:	83 fb 05             	cmp    $0x5,%ebx                    # compare (rbx - 5)
+  40114b:	7e e8                	jle    401135 <phase_6+0x41>        # if rbx - 5 <= 0: goto 401135
+  40114d:	49 83 c5 04          	add    $0x4,%r13                    # r13 += 4
+  401151:	eb c1                	jmp    401114 <phase_6+0x20>        # goto 401114
+  401153:	48 8d 74 24 18       	lea    0x18(%rsp),%rsi              # rsi = rsp+24 (numbers[5 + 1] out of bounds)
+  401158:	4c 89 f0             	mov    %r14,%rax                    # rax = r14
+  40115b:	b9 07 00 00 00       	mov    $0x7,%ecx                    # rcx = 7
+  401160:	89 ca                	mov    %ecx,%edx                    # rdx = rcx
+  401162:	2b 10                	sub    (%rax),%edx                  # rdx -= *rax
+  401164:	89 10                	mov    %edx,(%rax)                  # *rax = rdx
+  401166:	48 83 c0 04          	add    $0x4,%rax                    # rax += 4 (move to next int?)
+  40116a:	48 39 f0             	cmp    %rsi,%rax                    # compare (rax - rsi)
+  40116d:	75 f1                	jne    401160 <phase_6+0x6c>        # if (rax - rsi != 0): goto 401160 (map each int in numbers 7-numbers[i])
+  40116f:	be 00 00 00 00       	mov    $0x0,%esi                    # rsi = 0
+  401174:	eb 21                	jmp    401197 <phase_6+0xa3>        # goto 401197
+  401176:	48 8b 52 08          	mov    0x8(%rdx),%rdx               # rdx = (rdx+8) (address of next node)
+  40117a:	83 c0 01             	add    $0x1,%eax                    # rax += 1 (where was this set before?, is it the last element of numbers?)
+  40117d:	39 c8                	cmp    %ecx,%eax                    # compare (rax - rcx) (was rcx set as the first element of numbers?)
+  40117f:	75 f5                	jne    401176 <phase_6+0x82>        # if rax - rcx != 0: goto 401176 (while rax != rcx) { rax++ }
+  401181:	eb 05                	jmp    401188 <phase_6+0x94>        # else: goto 401188
+  401183:	ba d0 32 60 00       	mov    $0x6032d0,%edx               #
+  401188:	48 89 54 74 20       	mov    %rdx,0x20(%rsp,%rsi,2)       # *(rsp+32 + 2*rsi) = rdx
+  40118d:	48 83 c6 04          	add    $0x4,%rsi                    # rsi += 4
+  401191:	48 83 fe 18          	cmp    $0x18,%rsi                   # compare (rsi - 24)
+  401195:	74 14                	je     4011ab <phase_6+0xb7>        # if (rsi - 24 == 0): goto 4011ab
+  401197:	8b 0c 34             	mov    (%rsp,%rsi,1),%ecx           # rcx = *(rsp+rsi)
+  40119a:	83 f9 01             	cmp    $0x1,%ecx                    # compare (rcx - 1)
+  40119d:	7e e4                	jle    401183 <phase_6+0x8f>        # if (rcx <= 1): goto 401183
+  40119f:	b8 01 00 00 00       	mov    $0x1,%eax                    # else: rax = 1
+  4011a4:	ba d0 32 60 00       	mov    $0x6032d0,%edx               # rdx = 0x6032d0
+  4011a9:	eb cb                	jmp    401176 <phase_6+0x82>        # goto: 401176
+  4011ab:	48 8b 5c 24 20       	mov    0x20(%rsp),%rbx              # rbx = *(rsp+32)
+  4011b0:	48 8d 44 24 28       	lea    0x28(%rsp),%rax              # rax = *(rsp+40)
+  4011b5:	48 8d 74 24 50       	lea    0x50(%rsp),%rsi              # rsi = *(rsp+80)
+  4011ba:	48 89 d9             	mov    %rbx,%rcx                    # rcx = rbx
+  4011bd:	48 8b 10             	mov    (%rax),%rdx                  # rdx = *rax
+  4011c0:	48 89 51 08          	mov    %rdx,0x8(%rcx)               # *(rcx+8) = rdx
+  4011c4:	48 83 c0 08          	add    $0x8,%rax                    # rax += 8
+  4011c8:	48 39 f0             	cmp    %rsi,%rax                    # compare (rax - rsi)
+  4011cb:	74 05                	je     4011d2 <phase_6+0xde>        # if (rax - rsi == 0): goto 4011d2
+  4011cd:	48 89 d1             	mov    %rdx,%rcx                    # else: TODO
+  4011d0:	eb eb                	jmp    4011bd <phase_6+0xc9>
+  4011d2:	48 c7 42 08 00 00 00 	movq   $0x0,0x8(%rdx)               # *(rdx+8) = 0 (set node1.next = NULL)
+  4011d9:	00                                                        #
+  4011da:	bd 05 00 00 00       	mov    $0x5,%ebp                    # rbp = 5
+  4011df:	48 8b 43 08          	mov    0x8(%rbx),%rax               # rax = *(rbx+8) (rax = node6.next)
+  4011e3:	8b 00                	mov    (%rax),%eax                  # rax = *rax (rax = node6.next->value)
+  4011e5:	39 03                	cmp    %eax,(%rbx)                  # compare (*rbx - rax) (node6.value - node6.next->value)
+  4011e7:	7d 05                	jge    4011ee <phase_6+0xfa>        # if *rbx - rax >= 0: goto 4011ee
+  4011e9:	e8 4c 02 00 00       	call   40143a <explode_bomb>        # else: explode_bomb()
+  4011ee:	48 8b 5b 08          	mov    0x8(%rbx),%rbx               # rbx = *(rbx+8)
+  4011f2:	83 ed 01             	sub    $0x1,%ebp                    # rbp -= 1
+  4011f5:	75 e8                	jne    4011df <phase_6+0xeb>        # if *rbx - rax != 0: goto 4011df
+  4011f7:	48 83 c4 50          	add    $0x50,%rsp                   # else: deallocate stack frame
+  4011fb:	5b                   	pop    %rbx                         # restore callee-saved registers
+  4011fc:	5d                   	pop    %rbp                         #
+  4011fd:	41 5c                	pop    %r12                         #
+  4011ff:	41 5d                	pop    %r13                         #
+  401201:	41 5e                	pop    %r14                         #
+  401203:	c3                   	ret                                 # return
+```
 
-## Secret Phase
+### Notes:
 
-TODO
+- `401153` to `40116d` does `numbers.map(num => 7 - num)`
+
+- `*($0x6032d0)` points to first node in linked list of nodes (see disassembly.asm .data section)
+- `(gdb) break *0x4011a9`
+- `(gbd) x/12gx $rdx` to show the linked list
+
+```C
+typedef struct node {
+    long value;
+    node *next;
+} node;
+```
+
+- Up until `4011cb`, code is pushing the linked list next pointers onto the stack
+- and then reversing the connections by the order they are put on the stack?
+- input of `1 2 3 4 6` just reverses the list... maybe specifying a different order will order the list differently?
+
+```shell
+(gdb) x/12gx 0x6032d0
+0x6032d0 <node1>:       0x000000010000014c      0x0000000000000000
+0x6032e0 <node2>:       0x00000002000000a8      0x00000000006032d0
+0x6032f0 <node3>:       0x000000030000039c      0x00000000006032e0
+0x603300 <node4>:       0x00000004000002b3      0x00000000006032f0
+0x603310 <node5>:       0x00000005000001dd      0x0000000000603300
+0x603320 <node6>:       0x00000006000001bb      0x0000000000603310
+```
+
+- Can see the ordering is `6->1->5->2->4->3`
+
+- Final phase decides if bomb explodes
+- `rbx` pointing at new first node
+- `rdx` pointing at new last node
+
+```asm
+4011d2:	48 c7 42 08 00 00 00 	movq   $0x0,0x8(%rdx)               # last->next = NULL
+4011d9:	00                                                        #
+4011da:	bd 05 00 00 00       	mov    $0x5,%ebp                    # rbp = 5
+4011df:	48 8b 43 08          	mov    0x8(%rbx),%rax               # rax = curr->next
+4011e3:	8b 00                	mov    (%rax),%eax                  # rax = *(curr->next)
+4011e5:	39 03                	cmp    %eax,(%rbx)                  # compare (curr - next)
+4011e7:	7d 05                	jge    4011ee <phase_6+0xfa>        # if curr >= next: goto 4011ee
+4011e9:	e8 4c 02 00 00       	call   40143a <explode_bomb>        # else: explode
+4011ee:	48 8b 5b 08          	mov    0x8(%rbx),%rbx               # curr = curr->next
+4011f2:	83 ed 01             	sub    $0x1,%ebp                    # rbp-- (sub changes eflags/status flags like ZF)
+4011f5:	75 e8                	jne    4011df <phase_6+0xeb>        # if (rbp != 0): goto 4011df
+```
+
+- Each parent node value must be greater than its child, so our input should sort the linked list in descending order
+- `3->4->5->6->1->2`
+- The code at the start maps the 6 input numbers to `7 - x`
+- To find the input to generate the above ordering, just do `7-x` for each node number
+- `4 3 2 1 6 5`
+
+### `phase_6` Explained
+
+- Read 6 numbers from input
+- First number must be <= 5 (to safely address nodes in linked list, as there are 6 nodes?)
+- Validate there are no duplicate numbers in the input
+  - Validate numbers[0] appears only once in numbers
+  - For i = 1..5: validate numbers[i] appears only once in numbers
+- `numbers.map(n => 7 - n)` (this determines the final ordering of the linked list)
+  - `4 3 2 1 6 5` -> `3 4 5 6 1 2`
+- Push the address of nodeX on the stack in the order determined by previous mapping
+  - &node3, &node4, &node5, &node6, &node1, &node2
+- For each node on the stack: switch its `next` pointer to the next node on the stack
+- For the last node on the stack, set `next` to `0x0` (NULL)
+- For each node, starting at the first on the stack, compare its value with the value of the next node
+  - If curr.value < next.value: explode
+- Defuse
