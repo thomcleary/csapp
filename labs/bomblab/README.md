@@ -85,7 +85,7 @@ Phase 1 defused. How about the next one?
 0000000000400efc <phase_2>:
   400efc:	55                   	push   %rbp                         # push %rbp (base pointer)
   400efd:	53                   	push   %rbx                         # push %rbx (callee saved)
-  400efe:	48 83 ec 28          	sub    $0x28,%rsp                   # Create stack frame of 28 bytes
+  400efe:	48 83 ec 28          	sub    $0x28,%rsp                   # Create stack frame of 40 bytes
   400f02:	48 89 e6             	mov    %rsp,%rsi                    # rsi = rsp (%rsi = int numbers[6])
   400f05:	e8 52 05 00 00       	call   40145c <read_six_numbers>    # call read_six_numbers(input, &numbers)
   400f0a:	83 3c 24 01          	cmpl   $0x1,(%rsp)                  # compare (numbers[0] - 1)
@@ -129,7 +129,7 @@ void phase_2(char *input, int numbers[6]) {
 # void phase_3(char *input)
 # input in %rdi
 0000000000400f43 <phase_3>:
-  400f43:	48 83 ec 18          	sub    $0x18,%rsp                       # Add 18 bytes to stack frame
+  400f43:	48 83 ec 18          	sub    $0x18,%rsp                       # Add 24 bytes to stack frame
   400f47:	48 8d 4c 24 0c       	lea    0xc(%rsp),%rcx                   # rcx = rsp+12 (int y;)
   400f4c:	48 8d 54 24 08       	lea    0x8(%rsp),%rdx                   # rdx = rsp+8  (int x;)
   400f51:	be cf 25 40 00       	mov    $0x4025cf,%esi                   # rsi = address of "%d %d" (char *format)
@@ -236,7 +236,7 @@ void phase_3(char *input) {
   40100b:	c3                   	ret                                     # return
 
 000000000040100c <phase_4>:
-  40100c:	48 83 ec 18          	sub    $0x18,%rsp                       # Allocate stack frame (18 bytes)
+  40100c:	48 83 ec 18          	sub    $0x18,%rsp                       # Allocate stack frame (24 bytes)
   401010:	48 8d 4c 24 0c       	lea    0xc(%rsp),%rcx                   # y = rsp+12 (int *)
   401015:	48 8d 54 24 08       	lea    0x8(%rsp),%rdx                   # x = rsp+8 (int *)
   40101a:	be cf 25 40 00       	mov    $0x4025cf,%esi                   # char *format = "%d %d"
@@ -260,7 +260,7 @@ void phase_3(char *input) {
   401061:	c3                   	ret                                     # return
 ```
 
-### NOTES
+### Notes
 
 - requires input of 2 numbers 'x y'
 
@@ -281,7 +281,102 @@ void phase_3(char *input) {
 
 ## Phase 5
 
-TODO
+```asm
+0000000000401062 <phase_5>:
+  401062:	53                   	push   %rbx                             # save callee saved register
+  401063:	48 83 ec 20          	sub    $0x20,%rsp                       # allocate stack frame (32 bytes)
+  401067:	48 89 fb             	mov    %rdi,%rbx                        # rbx = input (char *)
+  40106a:	64 48 8b 04 25 28 00 	mov    %fs:0x28,%rax                    # rax = *(fs+28) (thread local storage)
+  401071:	00 00
+  401073:	48 89 44 24 18       	mov    %rax,0x18(%rsp)                  # rsp+24 = rax
+  401078:	31 c0                	xor    %eax,%eax                        # rax = 0
+  40107a:	e8 9c 02 00 00       	call   40131b <string_length>           # string_length(input)
+  40107f:	83 f8 06             	cmp    $0x6,%eax                        # compare (rax - 6)
+  401082:	74 4e                	je     4010d2 <phase_5+0x70>            # if (rax == 6): goto 4010d2
+  401084:	e8 b1 03 00 00       	call   40143a <explode_bomb>            # else: explode_bomb()
+  401089:	eb 47                	jmp    4010d2 <phase_5+0x70>
+  40108b:	0f b6 0c 03          	movzbl (%rbx,%rax,1),%ecx               # rcx = input[0]
+  40108f:	88 0c 24             	mov    %cl,(%rsp)                       # *rsp = input[0]
+  401092:	48 8b 14 24          	mov    (%rsp),%rdx                      # rdx = input[0]
+  401096:	83 e2 0f             	and    $0xf,%edx                        # rdx = input[0] & 15 (bottom 4 bits of input[0]
+  401099:	0f b6 92 b0 24 40 00 	movzbl 0x4024b0(%rdx),%edx              # rdx = 0x4024b0 + rdx (cipher_str[rdx])
+  4010a0:	88 54 04 10          	mov    %dl,0x10(%rsp,%rax,1)            # *(rsp+16 + rax) = cipher_str[rdx] (lower byte of rdx)
+  4010a4:	48 83 c0 01          	add    $0x1,%rax                        # rax += 1
+  4010a8:	48 83 f8 06          	cmp    $0x6,%rax                        # (rax - 6)
+  4010ac:	75 dd                	jne    40108b <phase_5+0x29>            # if (rax != 6): goto 40108b
+  4010ae:	c6 44 24 16 00       	movb   $0x0,0x16(%rsp)                  # else: *(rsp+22) = 0 (add '\0' to end of string)
+  4010b3:	be 5e 24 40 00       	mov    $0x40245e,%esi                   # rsi = 0x40245e (secret_str)
+  4010b8:	48 8d 7c 24 10       	lea    0x10(%rsp),%rdi                  # rdi = rsp+16 (generated_str)
+  4010bd:	e8 76 02 00 00       	call   401338 <strings_not_equal>       # strings_not_equal(generated_str, secret_str)
+  4010c2:	85 c0                	test   %eax,%eax                        # test (rax & rax)
+  4010c4:	74 13                	je     4010d9 <phase_5+0x77>            # if (strings_not_equal(generated_str, secret_str) == 0): goto 4010d9
+  4010c6:	e8 6f 03 00 00       	call   40143a <explode_bomb>            # else: explode_bomb()
+  4010cb:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+  4010d0:	eb 07                	jmp    4010d9 <phase_5+0x77>
+  4010d2:	b8 00 00 00 00       	mov    $0x0,%eax                        # rax = 0
+  4010d7:	eb b2                	jmp    40108b <phase_5+0x29>            # goto 40108b
+  4010d9:	48 8b 44 24 18       	mov    0x18(%rsp),%rax                  # rax = rsp+24
+  4010de:	64 48 33 04 25 28 00 	xor    %fs:0x28,%rax                    #
+  4010e5:	00 00                                                         #
+  4010e7:	74 05                	je     4010ee <phase_5+0x8c>            #
+  4010e9:	e8 42 fa ff ff       	call   400b30 <__stack_chk_fail@plt>    #
+  4010ee:	48 83 c4 20          	add    $0x20,%rsp                       # deallocate stack frame
+  4010f2:	5b                   	pop    %rbx                             # restore registers
+  4010f3:	c3                   	ret                                     # return
+```
+
+### Notes
+
+- input must be 6 characters long
+
+```asm
+401078:	31 c0                	xor    %eax,%eax                        # rax = 0
+40107a:	e8 9c 02 00 00       	call   40131b <string_length>           # string_length(input)
+40107f:	83 f8 06             	cmp    $0x6,%eax                        # compare (rax - 6)
+401082:	74 4e                	je     4010d2 <phase_5+0x70>            # if (rax == 6): goto 4010d2
+401084:	e8 b1 03 00 00       	call   40143a <explode_bomb>            # else: explode_bomb()
+```
+
+- `char[] cipher` at 0x4024b0
+
+```shell
+(gdb) x 0x4024b0
+0x4024b0 <array.3449>:  "maduiersnfotvbylSo you think you can stop the bomb with ctrl-c, do you?"
+```
+
+- `char[] secret` at 0x40245e
+
+```shell
+(gdb) x/s 0x40245e
+0x40245e:       "flyers"
+```
+
+### Cipher
+
+| Char | Offset |
+| ---- | ------ |
+| m    | 0      |
+| a    | 1      |
+| d    | 2      |
+| u    | 3      |
+| i    | 4      |
+| e    | 5      |
+| r    | 6      |
+| s    | 7      |
+| n    | 8      |
+| f    | 9      |
+| o    | 10     |
+| t    | 11     |
+| v    | 12     |
+| b    | 13     |
+| y    | 14     |
+| l    | 15     |
+
+- `flyers` == `[9][15][14][5][6][7]`
+- `0x9`,`0xf`,`0xe`,`0x5`,`0x6`,`0x7`
+- Each input character's last 4 bits must match the above
+- `i`,`o`,`n`,`e`,`f`,`g`
+- `0x69`,`0x6f`,`0x6e`,`0x65`,`0x66`,`0x67`
 
 ## Phase 6
 
