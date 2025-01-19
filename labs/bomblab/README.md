@@ -9,7 +9,8 @@ $ objdump -t bomb
 ## Disassemble
 
 ```shell
-$ objdump -d bomb
+$ objdump -d bomb > disassembly.asm
+$ objdump -s -j .rodata bomb >> disassembly.asm
 ```
 
 ## Strings
@@ -124,7 +125,87 @@ void phase_2(char *input, int numbers[6]) {
 
 ## Phase 3
 
-TODO
+```asm
+# void phase_3(char *input)
+# input in %rdi
+0000000000400f43 <phase_3>:
+  400f43:	48 83 ec 18          	sub    $0x18,%rsp                       # Add 18 bytes to stack frame
+  400f47:	48 8d 4c 24 0c       	lea    0xc(%rsp),%rcx                   # rcx = rsp+12 (int y;)
+  400f4c:	48 8d 54 24 08       	lea    0x8(%rsp),%rdx                   # rdx = rsp+8  (int x;)
+  400f51:	be cf 25 40 00       	mov    $0x4025cf,%esi                   # rsi = address of "%d %d" (char *format)
+  400f56:	b8 00 00 00 00       	mov    $0x0,%eax                        # rax = 0
+  400f5b:	e8 90 fc ff ff       	call   400bf0 <__isoc99_sscanf@plt>     # sscanf(input, format, &x, &y);
+  400f60:	83 f8 01             	cmp    $0x1,%eax                        # compare (rax - 1)
+  400f63:	7f 05                	jg     400f6a <phase_3+0x27>            # if rax > 1: goto 400f6a
+  400f65:	e8 d0 04 00 00       	call   40143a <explode_bomb>            # else: explode_bomb()
+  400f6a:	83 7c 24 08 07       	cmpl   $0x7,0x8(%rsp)                   # compare (x - 7)
+  400f6f:	77 3c                	ja     400fad <phase_3+0x6a>            # if (unsigned)x > 7: goto 400fad
+  400f71:	8b 44 24 08          	mov    0x8(%rsp),%eax                   # else: rax = x
+  400f75:	ff 24 c5 70 24 40 00 	jmp    *0x402470(,%rax,8)               # goto jump_table[x * 8]
+  400f7c:	b8 cf 00 00 00       	mov    $0xcf,%eax                       # case 0: rax = 207
+  400f81:	eb 3b                	jmp    400fbe <phase_3+0x7b>            # goto 400fbe
+  400f83:	b8 c3 02 00 00       	mov    $0x2c3,%eax
+  400f88:	eb 34                	jmp    400fbe <phase_3+0x7b>
+  400f8a:	b8 00 01 00 00       	mov    $0x100,%eax
+  400f8f:	eb 2d                	jmp    400fbe <phase_3+0x7b>
+  400f91:	b8 85 01 00 00       	mov    $0x185,%eax
+  400f96:	eb 26                	jmp    400fbe <phase_3+0x7b>
+  400f98:	b8 ce 00 00 00       	mov    $0xce,%eax
+  400f9d:	eb 1f                	jmp    400fbe <phase_3+0x7b>
+  400f9f:	b8 aa 02 00 00       	mov    $0x2aa,%eax
+  400fa4:	eb 18                	jmp    400fbe <phase_3+0x7b>
+  400fa6:	b8 47 01 00 00       	mov    $0x147,%eax
+  400fab:	eb 11                	jmp    400fbe <phase_3+0x7b>
+  400fad:	e8 88 04 00 00       	call   40143a <explode_bomb>            # explode_bomb()
+  400fb2:	b8 00 00 00 00       	mov    $0x0,%eax
+  400fb7:	eb 05                	jmp    400fbe <phase_3+0x7b>
+  400fb9:	b8 37 01 00 00       	mov    $0x137,%eax
+  400fbe:	3b 44 24 0c          	cmp    0xc(%rsp),%eax                   # compare (rax - y)
+  400fc2:	74 05                	je     400fc9 <phase_3+0x86>            # if rax == y: goto 400fc9
+  400fc4:	e8 71 04 00 00       	call   40143a <explode_bomb>            # else: explode_bomb()
+  400fc9:	48 83 c4 18          	add    $0x18,%rsp                       # restore stack
+  400fcd:	c3                   	ret                                     # return
+  ...
+Contents of section .rodata:
+   ...
+   402470 7c0f4000 00000000 b90f4000 00000000  |.@.......@.....
+   402480 830f4000 00000000 8a0f4000 00000000  ..@.......@.....
+   402490 910f4000 00000000 980f4000 00000000  ..@.......@.....
+   4024a0 9f0f4000 00000000 a60f4000 00000000  ..@.......@.....
+```
+
+```C
+void phase_3(char *input) {
+    int x, y, z;
+    sscanf(input, "%d %d", &x, &y);
+
+    switch (x) {
+        case 0:
+            z = 207;
+            break
+        case 1:
+            ...
+        case 2:
+            ...
+        case 3:
+            ...
+        case 4:
+            ...
+        case 5:
+            ...
+        case 6:
+            ...
+        case 7:
+            ...
+        default:
+            explode_bomb();
+    }
+
+    if (y != z) {
+        explode_bomb();
+    }
+}
+```
 
 ## Phase 4
 
