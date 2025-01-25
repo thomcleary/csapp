@@ -1,6 +1,8 @@
+!*.asm
+!*.s
 !cookie.txt
 !ctarget
 !ctarget.disassembly.asm
-!exploit*
+!*exploit*
 !hex2raw
 !rtarget
