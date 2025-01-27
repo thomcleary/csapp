@@ -9,4 +9,4 @@
 | Cache Lab        |    6     |
 | Shell Lab        |    8     |
 | Malloc Lab       |    9     |
-| Proxy Lab        |  11-12   |
+| Proxy Lab        |  10-12   |
