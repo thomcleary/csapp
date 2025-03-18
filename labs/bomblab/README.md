@@ -450,7 +450,7 @@ void phase_3(char *input) {
   4011c4:	48 83 c0 08          	add    $0x8,%rax                    # rax += 8
   4011c8:	48 39 f0             	cmp    %rsi,%rax                    # compare (rax - rsi)
   4011cb:	74 05                	je     4011d2 <phase_6+0xde>        # if (rax - rsi == 0): goto 4011d2
-  4011cd:	48 89 d1             	mov    %rdx,%rcx                    # else: TODO
+  4011cd:	48 89 d1             	mov    %rdx,%rcx                    # else: ...
   4011d0:	eb eb                	jmp    4011bd <phase_6+0xc9>
   4011d2:	48 c7 42 08 00 00 00 	movq   $0x0,0x8(%rdx)               # *(rdx+8) = 0 (set node1.next = NULL)
   4011d9:	00                                                        #
