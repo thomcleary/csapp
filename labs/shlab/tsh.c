@@ -1,6 +1,7 @@
 /*
  * tsh - A tiny shell program with job control
  */
+#include <assert.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -161,14 +162,79 @@ int main(int argc, char **argv) {
  */
 void eval(char *cmdline) {
   char *argv[MAXARGS];
+  for (size_t i = 0; i < MAXARGS; i++) {
+    argv[i] = NULL;
+  }
+
   bool bg = parseline(cmdline, (char **)argv);
+
+  if (*argv == NULL) {
+    return;
+  }
 
   if (builtin_cmd((char **)argv)) {
     return;
   }
 
-  printf("TODO: non builtin commands\n");
-  printf("background?: %s\n", bg ? "true" : "false");
+  sigset_t full_sigset, child_sigset, old_sigset;
+  int result;
+
+  if ((result = sigfillset(&full_sigset)) == -1) {
+    unix_error("sigfillset error");
+  }
+  if ((result = sigemptyset(&child_sigset)) == -1) {
+    unix_error("sigemptyset error");
+  }
+  if ((result = sigaddset(&child_sigset, SIGCHLD)) == -1) {
+    unix_error("sigaddset error");
+  }
+
+  // Block SIGCHLD signals before forking to ensure addjob is called before
+  // deletejob (signal handler will reap the child)
+  if ((result = sigprocmask(SIG_BLOCK, &child_sigset, &old_sigset)) == -1) {
+    unix_error("sigprocmask error");
+  }
+
+  pid_t pid;
+
+  if ((pid = fork()) == -1) {
+    unix_error("fork error");
+  }
+
+  // child process
+  if (pid == 0) {
+    if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
+      unix_error("sigprocmask error");
+    }
+
+    // Set child's group ID to its PID, so that signals sent to the parent shell
+    // process are not recieved by the child
+    if (setpgid(0, 0) == -1) {
+      unix_error("setpgid error");
+    }
+
+    execve(argv[0], argv, NULL);
+
+    printf("%s: Command not found\n", argv[0]);
+    exit(0); // execve does not return on success
+  }
+
+  // parent process
+  if ((result = sigprocmask(SIG_BLOCK, &full_sigset, NULL)) == -1) {
+    unix_error("sigprocmask error");
+  }
+  if (!addjob(jobs, pid, bg ? BG : FG, cmdline)) {
+    app_error("Failed to add job");
+  }
+  if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
+    unix_error("sigprocmask error");
+  }
+
+  if (bg) {
+    printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+  } else {
+    waitfg(pid);
+  }
 
   return;
 }
@@ -232,14 +298,33 @@ bool parseline(const char *cmdline, char **argv) {
  *    it immediately.
  */
 bool builtin_cmd(char **argv) {
-  if (!argv || !(*argv)) {
+  assert(argv != NULL && "argv is NULL");
+
+  if (*argv == NULL) {
     return false;
   }
 
   char *cmd = argv[0];
-  if (strncmp(cmd, "quit", strlen(cmd)) == 0) {
+  size_t cmd_len = strnlen(cmd, MAXLINE);
+
+  if (strncmp(cmd, "quit", cmd_len) == 0) {
     // I'm going to assume we don't need to kill background jobs
     exit(0);
+  }
+
+  if (strncmp(cmd, "jobs", cmd_len) == 0) {
+    printf("builtin_cmd 'jobs' not implemented\n");
+    return true;
+  }
+
+  if (strncmp(cmd, "bg", cmd_len) == 0) {
+    printf("builtin_cmd 'bg' not implemented\n");
+    return true;
+  }
+
+  if (strncmp(cmd, "fg", cmd_len) == 0) {
+    printf("builtin_cmd 'fg' not implemented\n");
+    return true;
   }
 
   return false; /* not a builtin command */
@@ -256,7 +341,10 @@ void do_bgfg(char **argv) {
  * waitfg - Block until process pid is no longer the foreground process
  */
 void waitfg(pid_t pid) {
-  return;
+  while (fgpid(jobs) == pid) {
+    // TODO: can we use sigsuspend instead?
+    sleep(1);
+  }
 }
 
 /*****************
@@ -271,7 +359,59 @@ void waitfg(pid_t pid) {
  *     currently running children to terminate.
  */
 void sigchld_handler(int sig) {
-  return;
+  int old_errno = errno;
+  sigset_t full_sigset, old_sigset;
+  pid_t pid;
+  int result;
+
+  // NOTE: write() used for error messages as printf and friends are not
+  // async-signal-safe and should not be used in signal handlers
+
+  // NOTE: constant values for error message lengths used as strlen is not
+  // async-signal-safe (compiler warnings will catch if the msg_len is to small
+  // for the string literal)
+
+  // NOTE: _exit() used as exit() is not async-signal-safe
+
+  if ((result = sigfillset(&full_sigset)) == -1) {
+    const char msg[17] = "sigfillset error\n";
+    result = write(STDERR_FILENO, msg, 17);
+    _exit(EXIT_FAILURE);
+  }
+
+  int wait_for_pid = -1; // wait for any child process
+  int wstatus;
+  const int options = WNOHANG | WUNTRACED;
+  // WNOHANG: return immediately if no child has exited.
+  // WUNTRACED: also return if a child has stopped
+
+  while ((pid = waitpid(wait_for_pid, &wstatus, options)) > 0) {
+    if ((result = sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset)) == -1) {
+      const char msg[18] = "sigprocmask error\n";
+      result = write(STDERR_FILENO, msg, 18);
+      _exit(EXIT_FAILURE);
+    }
+
+    if (WIFSTOPPED(wstatus)) {
+      // TODO test08: make sure SIGSTP is being handled correctly
+      // Update state of pid job to be ST
+      const char msg[46] = "[sigchld_handler]: WIFSTOPPED not implemented\n";
+      result = write(STDERR_FILENO, msg, 46);
+      _exit(EXIT_FAILURE);
+    } else if (!deletejob(jobs, pid)) {
+      const char msg[21] = "Failed to delete job\n";
+      result = write(STDERR_FILENO, msg, 21);
+      _exit(EXIT_FAILURE);
+    }
+
+    if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
+      const char msg[18] = "sigprocmask error\n";
+      result = write(STDERR_FILENO, msg, 18);
+      _exit(EXIT_FAILURE);
+    }
+  }
+
+  errno = old_errno;
 }
 
 /*
