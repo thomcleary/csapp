@@ -307,13 +307,14 @@ bool builtin_cmd(char **argv) {
   char *cmd = argv[0];
   size_t cmd_len = strnlen(cmd, MAXLINE);
 
-  if (strncmp(cmd, "quit", cmd_len) == 0) {
+  if (strncmp(cmd, "quit", cmd_len) == 0 ||
+      strncmp(cmd, "exit", cmd_len) == 0) {
     // I'm going to assume we don't need to kill background jobs
     exit(0);
   }
 
   if (strncmp(cmd, "jobs", cmd_len) == 0) {
-    printf("builtin_cmd 'jobs' not implemented\n");
+    listjobs(jobs);
     return true;
   }
 
