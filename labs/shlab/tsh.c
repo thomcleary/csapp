@@ -3,6 +3,7 @@
  */
 #include <errno.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,7 +53,7 @@ struct job_t jobs[MAXJOBS]; /* The job list */
 
 /* Here are the functions that you will implement */
 void eval(char *cmdline);
-int builtin_cmd(char **argv);
+bool builtin_cmd(char **argv);
 void do_bgfg(char **argv);
 void waitfg(pid_t pid);
 
@@ -61,14 +62,14 @@ void sigtstp_handler(int sig);
 void sigint_handler(int sig);
 
 /* Here are helper routines that we've provided for you */
-int parseline(const char *cmdline, char **argv);
+bool parseline(const char *cmdline, char **argv);
 void sigquit_handler(int sig);
 
 void clearjob(struct job_t *job);
 void initjobs(struct job_t *jobs);
 int maxjid(struct job_t *jobs);
-int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline);
-int deletejob(struct job_t *jobs, pid_t pid);
+bool addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline);
+bool deletejob(struct job_t *jobs, pid_t pid);
 pid_t fgpid(struct job_t *jobs);
 struct job_t *getjobpid(struct job_t *jobs, pid_t pid);
 struct job_t *getjobjid(struct job_t *jobs, int jid);
@@ -159,8 +160,16 @@ int main(int argc, char **argv) {
  * when we type ctrl-c (ctrl-z) at the keyboard.
  */
 void eval(char *cmdline) {
-  // TODO trace02: start here
-  // call builtin_cmd and return when cmdline is a builtin command
+  char *argv[MAXARGS];
+  bool bg = parseline(cmdline, (char **)argv);
+
+  if (builtin_cmd((char **)argv)) {
+    return;
+  }
+
+  printf("TODO: non builtin commands\n");
+  printf("background?: %s\n", bg ? "true" : "false");
+
   return;
 }
 
@@ -171,7 +180,7 @@ void eval(char *cmdline) {
  * argument.  Return true if the user has requested a BG job, false if
  * the user has requested a FG job.
  */
-int parseline(const char *cmdline, char **argv) {
+bool parseline(const char *cmdline, char **argv) {
   static char array[MAXLINE]; /* holds local copy of command line */
   char *buf = array;          /* ptr that traverses command line */
   char *delim;                /* points to first space delimiter */
@@ -209,7 +218,7 @@ int parseline(const char *cmdline, char **argv) {
   argv[argc] = NULL;
 
   if (argc == 0) /* ignore blank line */
-    return 1;
+    return true;
 
   /* should the job run in the background? */
   if ((bg = (*argv[argc - 1] == '&')) != 0) {
@@ -222,8 +231,18 @@ int parseline(const char *cmdline, char **argv) {
  * builtin_cmd - If the user has typed a built-in command then execute
  *    it immediately.
  */
-int builtin_cmd(char **argv) {
-  return 0; /* not a builtin command */
+bool builtin_cmd(char **argv) {
+  if (!argv || !(*argv)) {
+    return false;
+  }
+
+  char *cmd = argv[0];
+  if (strncmp(cmd, "quit", strlen(cmd)) == 0) {
+    // I'm going to assume we don't need to kill background jobs
+    exit(0);
+  }
+
+  return false; /* not a builtin command */
 }
 
 /*
@@ -308,11 +327,11 @@ int maxjid(struct job_t *jobs) {
 }
 
 /* addjob - Add a job to the job list */
-int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline) {
+bool addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline) {
   int i;
 
   if (pid < 1)
-    return 0;
+    return false;
 
   for (i = 0; i < MAXJOBS; i++) {
     if (jobs[i].pid == 0) {
@@ -326,28 +345,28 @@ int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline) {
         printf("Added job [%d] %d %s\n", jobs[i].jid, jobs[i].pid,
                jobs[i].cmdline);
       }
-      return 1;
+      return true;
     }
   }
   printf("Tried to create too many jobs\n");
-  return 0;
+  return false;
 }
 
 /* deletejob - Delete a job whose PID=pid from the job list */
-int deletejob(struct job_t *jobs, pid_t pid) {
+bool deletejob(struct job_t *jobs, pid_t pid) {
   int i;
 
   if (pid < 1)
-    return 0;
+    return false;
 
   for (i = 0; i < MAXJOBS; i++) {
     if (jobs[i].pid == pid) {
       clearjob(&jobs[i]);
       nextjid = maxjid(jobs) + 1;
-      return 1;
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 
 /* fgpid - Return PID of current foreground job, 0 if no such job */
