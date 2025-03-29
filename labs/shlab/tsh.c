@@ -48,6 +48,15 @@ struct job_t {           /* The job struct */
   char cmdline[MAXLINE]; /* command line */
 };
 struct job_t jobs[MAXJOBS]; /* The job list */
+
+/*
+ * A flag and signal value to allow waitfg() to output a message to STDOUT when
+ * a foreground process has been sent the SIGINT signal.
+ *
+ * printf and friends aren't async-signal-safe
+ */
+volatile sig_atomic_t fg_job_interrupt = false;
+volatile sig_atomic_t fg_job_interrupt_signal;
 /* End global variables */
 
 /* Function prototypes */
@@ -178,6 +187,7 @@ void eval(char *cmdline) {
 
   sigset_t full_sigset, child_sigset, old_sigset;
   int result;
+  errno = 0;
 
   if ((result = sigfillset(&full_sigset)) == -1) {
     unix_error("sigfillset error");
@@ -213,7 +223,7 @@ void eval(char *cmdline) {
       unix_error("setpgid error");
     }
 
-    execve(argv[0], argv, NULL);
+    execvp(argv[0], argv);
 
     printf("%s: Command not found\n", argv[0]);
     exit(0); // execve does not return on success
@@ -342,15 +352,69 @@ void do_bgfg(char **argv) {
  * waitfg - Block until process pid is no longer the foreground process
  */
 void waitfg(pid_t pid) {
+  sigset_t block_sigset, suspend_sigset, old_sigset;
+  int result;
+  errno = 0;
+
+  // Build mask to block signals between while loop condition and call to
+  // sigsuspend
+  if ((result = sigemptyset(&block_sigset)) == -1) {
+    unix_error("sigemptyset error");
+  }
+  if ((result = sigaddset(&block_sigset, SIGCHLD)) == -1) {
+    unix_error("sigaddset error");
+  }
+  if ((result = sigaddset(&block_sigset, SIGINT)) == -1) {
+    unix_error("sigaddset error");
+  }
+  if ((result = sigprocmask(SIG_SETMASK, &block_sigset, &old_sigset)) == -1) {
+    unix_error("sigprocmask error");
+  }
+
+  // Build mask to unblock signals during call to sigsuspend
+  if ((result = sigprocmask(SIG_SETMASK, NULL, &suspend_sigset)) == -1) {
+    unix_error("sigprocmask error");
+  }
+  if ((result = sigdelset(&suspend_sigset, SIGCHLD)) == -1) {
+    unix_error("sigdelset error");
+  }
+  if ((result = sigdelset(&suspend_sigset, SIGINT)) == -1) {
+    unix_error("sigdelset error");
+  }
+
+  int jid = pid2jid(pid);
+
   while (fgpid(jobs) == pid) {
-    // TODO: can we use sigsuspend instead?
-    sleep(1);
+    sigsuspend(&suspend_sigset);
+    if (errno != EINTR) {
+      unix_error("sigsuspend failed");
+    }
+  }
+
+  if (fg_job_interrupt) {
+    printf("Job [%d] (%d) terminated by signal %d\n", jid, pid,
+           fg_job_interrupt_signal);
+
+    fg_job_interrupt = false;
+  }
+
+  if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
+    unix_error("sigprocmask error");
   }
 }
 
 /*****************
  * Signal handlers
  *****************/
+
+// NOTE: write() used for error messages as printf and friends are not
+// async-signal-safe and should not be used in signal handlers
+
+// NOTE: constant values for error message lengths used as strlen is not
+// async-signal-safe (compiler warnings will catch if the msg_len is to small
+// for the string literal)
+
+// NOTE: _exit() used as exit() is not async-signal-safe
 
 /*
  * sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
@@ -364,15 +428,6 @@ void sigchld_handler(int sig) {
   sigset_t full_sigset, old_sigset;
   pid_t pid;
   int result;
-
-  // NOTE: write() used for error messages as printf and friends are not
-  // async-signal-safe and should not be used in signal handlers
-
-  // NOTE: constant values for error message lengths used as strlen is not
-  // async-signal-safe (compiler warnings will catch if the msg_len is to small
-  // for the string literal)
-
-  // NOTE: _exit() used as exit() is not async-signal-safe
 
   if ((result = sigfillset(&full_sigset)) == -1) {
     const char msg[17] = "sigfillset error\n";
@@ -394,7 +449,7 @@ void sigchld_handler(int sig) {
     }
 
     if (WIFSTOPPED(wstatus)) {
-      // TODO test08: make sure SIGSTP is being handled correctly
+      // TODO: make sure SIGSTP is being handled correctly
       // Update state of pid job to be ST
       const char msg[46] = "[sigchld_handler]: WIFSTOPPED not implemented\n";
       result = write(STDERR_FILENO, msg, 46);
@@ -416,12 +471,55 @@ void sigchld_handler(int sig) {
 }
 
 /*
- * sigint_handler - The kernel sends a SIGINT to the shell whenver the
+ * sigint_handler - The kernel sends a SIGINT to the shell whenever the
  *    user types ctrl-c at the keyboard.  Catch it and send it along
  *    to the foreground job.
  */
 void sigint_handler(int sig) {
-  return;
+  int old_errno = errno;
+
+  sigset_t full_sigset, old_sigset;
+  pid_t fg_pid;
+  int result;
+
+  // Block signals while accessing and updating global variable jobs
+  if ((result = sigfillset(&full_sigset)) == -1) {
+    const char msg[17] = "sigfillset error\n";
+    result = write(STDERR_FILENO, msg, 17);
+    _exit(EXIT_FAILURE);
+  }
+  if ((result = sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset)) == -1) {
+    const char msg[18] = "sigprocmask error\n";
+    result = write(STDERR_FILENO, msg, 18);
+    _exit(EXIT_FAILURE);
+  }
+
+  if ((fg_pid = fgpid(jobs)) > 0) {
+    // If  pid  is less than -1, then sig is sent to every process in the
+    // process group whose ID is -pid.
+    if ((result = kill(-fg_pid, sig)) == -1) {
+      const char msg[11] = "kill error\n";
+      result = write(STDERR_FILENO, msg, 11);
+      _exit(EXIT_FAILURE);
+    }
+
+    // NOTE: don't call deletejob(jobs, fg_pid) here
+    // Calling kill() will send a SIGCHLD signal to the shell process
+    // sigchld_handler will handle calling deletejob()
+
+    // Set flag and signal value so waitfg() knows to output message via
+    // printf()
+    fg_job_interrupt = true;
+    fg_job_interrupt_signal = sig;
+  }
+
+  if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
+    const char msg[18] = "sigprocmask error\n";
+    result = write(STDERR_FILENO, msg, 18);
+    _exit(EXIT_FAILURE);
+  }
+
+  errno = old_errno;
 }
 
 /*
@@ -430,7 +528,11 @@ void sigint_handler(int sig) {
  *     foreground job by sending it a SIGTSTP.
  */
 void sigtstp_handler(int sig) {
-  return;
+  int old_errno = errno;
+
+  // TODO test08
+
+  errno = old_errno;
 }
 
 /*********************
