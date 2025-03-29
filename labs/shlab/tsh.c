@@ -50,13 +50,15 @@ struct job_t {           /* The job struct */
 struct job_t jobs[MAXJOBS]; /* The job list */
 
 /*
- * A flag and signal value to allow waitfg() to output a message to STDOUT when
- * a foreground process has been sent the SIGINT signal.
- *
- * printf and friends aren't async-signal-safe
+ * Flags to allow waitfg() to output a message to STDOUT when a foreground
+ * process has been sent a signal to interrupt its execution.
+ * (printf and friends aren't async-signal-safe and can't be used in signal
+ * handlers)
  */
-volatile sig_atomic_t fg_job_interrupt = false;
-volatile sig_atomic_t fg_job_interrupt_signal;
+struct fg_signal_flags {
+  volatile sig_atomic_t interrupted;
+  volatile sig_atomic_t stopped;
+} fg_signal;
 /* End global variables */
 
 /* Function prototypes */
@@ -91,6 +93,14 @@ void unix_error(char *msg);
 void app_error(char *msg);
 typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
+
+/* Error handling wrappers */
+void Sigprocmask(int how, const sigset_t *restrict set,
+                 sigset_t *restrict oldset);
+void Sigemptyset(sigset_t *set);
+void Sigfillset(sigset_t *set);
+void Sigaddset(sigset_t *set, int signum);
+void Sigdelset(sigset_t *set, int signum);
 
 /*
  * main - The shell's main routine
@@ -186,36 +196,25 @@ void eval(char *cmdline) {
   }
 
   sigset_t full_sigset, child_sigset, old_sigset;
-  int result;
-  errno = 0;
 
-  if ((result = sigfillset(&full_sigset)) == -1) {
-    unix_error("sigfillset error");
-  }
-  if ((result = sigemptyset(&child_sigset)) == -1) {
-    unix_error("sigemptyset error");
-  }
-  if ((result = sigaddset(&child_sigset, SIGCHLD)) == -1) {
-    unix_error("sigaddset error");
-  }
+  Sigfillset(&full_sigset);
+  Sigemptyset(&child_sigset);
+  Sigaddset(&child_sigset, SIGCHLD);
 
   // Block SIGCHLD signals before forking to ensure addjob is called before
-  // deletejob (signal handler will reap the child)
-  if ((result = sigprocmask(SIG_BLOCK, &child_sigset, &old_sigset)) == -1) {
-    unix_error("sigprocmask error");
-  }
+  // sigchld_handler calls deletejob
+  Sigprocmask(SIG_BLOCK, &child_sigset, &old_sigset);
 
-  pid_t pid;
+  pid_t pid = fork();
 
-  if ((pid = fork()) == -1) {
+  if (pid == -1) {
     unix_error("fork error");
   }
 
   // child process
   if (pid == 0) {
-    if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
-      unix_error("sigprocmask error");
-    }
+    // Reset child mask to unblock SIGCHLD
+    Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
 
     // Set child's group ID to its PID, so that signals sent to the parent shell
     // process are not recieved by the child
@@ -226,22 +225,24 @@ void eval(char *cmdline) {
     execvp(argv[0], argv);
 
     printf("%s: Command not found\n", argv[0]);
-    exit(0); // execve does not return on success
+    exit(EXIT_FAILURE); // execve does not return on success
   }
 
   // parent process
-  if ((result = sigprocmask(SIG_BLOCK, &full_sigset, NULL)) == -1) {
-    unix_error("sigprocmask error");
-  }
+  // Block signals while accessing and mutating global variable jobs
+  Sigprocmask(SIG_BLOCK, &full_sigset, NULL);
+
   if (!addjob(jobs, pid, bg ? BG : FG, cmdline)) {
     app_error("Failed to add job");
   }
-  if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
-    unix_error("sigprocmask error");
-  }
+
+  int jid = pid2jid(pid);
+
+  // Unblock signals
+  Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
 
   if (bg) {
-    printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+    printf("[%d] (%d) %s", jid, pid, cmdline);
   } else {
     waitfg(pid);
   }
@@ -328,13 +329,11 @@ bool builtin_cmd(char **argv) {
     return true;
   }
 
-  if (strncmp(cmd, "bg", cmd_len) == 0) {
-    printf("builtin_cmd 'bg' not implemented\n");
-    return true;
-  }
+  bool is_bg = strncmp(cmd, "bg", cmd_len) == 0;
+  bool is_fg = strncmp(cmd, "fg", cmd_len) == 0;
 
-  if (strncmp(cmd, "fg", cmd_len) == 0) {
-    printf("builtin_cmd 'fg' not implemented\n");
+  if (is_bg || is_fg) {
+    do_bgfg(argv);
     return true;
   }
 
@@ -345,6 +344,7 @@ bool builtin_cmd(char **argv) {
  * do_bgfg - Execute the builtin bg and fg commands
  */
 void do_bgfg(char **argv) {
+  // TODO: test09
   return;
 }
 
@@ -353,34 +353,21 @@ void do_bgfg(char **argv) {
  */
 void waitfg(pid_t pid) {
   sigset_t block_sigset, suspend_sigset, old_sigset;
-  int result;
-  errno = 0;
 
   // Build mask to block signals between while loop condition and call to
   // sigsuspend
-  if ((result = sigemptyset(&block_sigset)) == -1) {
-    unix_error("sigemptyset error");
-  }
-  if ((result = sigaddset(&block_sigset, SIGCHLD)) == -1) {
-    unix_error("sigaddset error");
-  }
-  if ((result = sigaddset(&block_sigset, SIGINT)) == -1) {
-    unix_error("sigaddset error");
-  }
-  if ((result = sigprocmask(SIG_SETMASK, &block_sigset, &old_sigset)) == -1) {
-    unix_error("sigprocmask error");
-  }
+  Sigemptyset(&block_sigset);
+  Sigaddset(&block_sigset, SIGCHLD);
+  Sigaddset(&block_sigset, SIGINT);
+  Sigaddset(&block_sigset, SIGTSTP);
 
   // Build mask to unblock signals during call to sigsuspend
-  if ((result = sigprocmask(SIG_SETMASK, NULL, &suspend_sigset)) == -1) {
-    unix_error("sigprocmask error");
-  }
-  if ((result = sigdelset(&suspend_sigset, SIGCHLD)) == -1) {
-    unix_error("sigdelset error");
-  }
-  if ((result = sigdelset(&suspend_sigset, SIGINT)) == -1) {
-    unix_error("sigdelset error");
-  }
+  Sigprocmask(SIG_SETMASK, NULL, &suspend_sigset);
+  Sigdelset(&suspend_sigset, SIGCHLD);
+  Sigdelset(&suspend_sigset, SIGINT);
+  Sigdelset(&suspend_sigset, SIGTSTP);
+
+  Sigprocmask(SIG_SETMASK, &block_sigset, &old_sigset);
 
   int jid = pid2jid(pid);
 
@@ -391,30 +378,20 @@ void waitfg(pid_t pid) {
     }
   }
 
-  if (fg_job_interrupt) {
-    printf("Job [%d] (%d) terminated by signal %d\n", jid, pid,
-           fg_job_interrupt_signal);
+  Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
 
-    fg_job_interrupt = false;
-  }
-
-  if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
-    unix_error("sigprocmask error");
+  if (fg_signal.interrupted) {
+    printf("Job [%d] (%d) terminated by signal %d\n", jid, pid, SIGINT);
+    fg_signal.interrupted = false;
+  } else if (fg_signal.stopped) {
+    printf("Job [%d] (%d) stopped by signal %d\n", jid, pid, SIGTSTP);
+    fg_signal.stopped = false;
   }
 }
 
 /*****************
  * Signal handlers
  *****************/
-
-// NOTE: write() used for error messages as printf and friends are not
-// async-signal-safe and should not be used in signal handlers
-
-// NOTE: constant values for error message lengths used as strlen is not
-// async-signal-safe (compiler warnings will catch if the msg_len is to small
-// for the string literal)
-
-// NOTE: _exit() used as exit() is not async-signal-safe
 
 /*
  * sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
@@ -425,46 +402,27 @@ void waitfg(pid_t pid) {
  */
 void sigchld_handler(int sig) {
   int old_errno = errno;
+
   sigset_t full_sigset, old_sigset;
   pid_t pid;
-  int result;
-
-  if ((result = sigfillset(&full_sigset)) == -1) {
-    const char msg[17] = "sigfillset error\n";
-    result = write(STDERR_FILENO, msg, 17);
-    _exit(EXIT_FAILURE);
-  }
-
-  int wait_for_pid = -1; // wait for any child process
   int wstatus;
-  const int options = WNOHANG | WUNTRACED;
-  // WNOHANG: return immediately if no child has exited.
-  // WUNTRACED: also return if a child has stopped
 
-  while ((pid = waitpid(wait_for_pid, &wstatus, options)) > 0) {
-    if ((result = sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset)) == -1) {
-      const char msg[18] = "sigprocmask error\n";
-      result = write(STDERR_FILENO, msg, 18);
-      _exit(EXIT_FAILURE);
-    }
+  Sigfillset(&full_sigset);
+
+  while ((pid = waitpid(-1, &wstatus, WNOHANG | WUNTRACED)) > 0) {
+    Sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset);
 
     if (WIFSTOPPED(wstatus)) {
-      // TODO: make sure SIGSTP is being handled correctly
-      // Update state of pid job to be ST
-      const char msg[46] = "[sigchld_handler]: WIFSTOPPED not implemented\n";
-      result = write(STDERR_FILENO, msg, 46);
-      _exit(EXIT_FAILURE);
+      struct job_t *job = getjobpid(jobs, pid);
+      job->state = ST;
     } else if (!deletejob(jobs, pid)) {
-      const char msg[21] = "Failed to delete job\n";
-      result = write(STDERR_FILENO, msg, 21);
-      _exit(EXIT_FAILURE);
+      // Since all signals blocked and we're exiting, who cares if printf isn't
+      // async-signal-safe
+      printf("Failed to delete job with pid [%d]\n", pid);
+      exit(EXIT_FAILURE);
     }
 
-    if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
-      const char msg[18] = "sigprocmask error\n";
-      result = write(STDERR_FILENO, msg, 18);
-      _exit(EXIT_FAILURE);
-    }
+    Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
   }
 
   errno = old_errno;
@@ -479,44 +437,29 @@ void sigint_handler(int sig) {
   int old_errno = errno;
 
   sigset_t full_sigset, old_sigset;
-  pid_t fg_pid;
   int result;
 
-  // Block signals while accessing and updating global variable jobs
-  if ((result = sigfillset(&full_sigset)) == -1) {
-    const char msg[17] = "sigfillset error\n";
-    result = write(STDERR_FILENO, msg, 17);
-    _exit(EXIT_FAILURE);
-  }
-  if ((result = sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset)) == -1) {
-    const char msg[18] = "sigprocmask error\n";
-    result = write(STDERR_FILENO, msg, 18);
-    _exit(EXIT_FAILURE);
-  }
+  Sigfillset(&full_sigset);
 
-  if ((fg_pid = fgpid(jobs)) > 0) {
+  Sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset);
+  pid_t fg_pid = fgpid(jobs);
+  Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
+
+  if (fg_pid > 0) {
     // If  pid  is less than -1, then sig is sent to every process in the
     // process group whose ID is -pid.
     if ((result = kill(-fg_pid, sig)) == -1) {
-      const char msg[11] = "kill error\n";
-      result = write(STDERR_FILENO, msg, 11);
-      _exit(EXIT_FAILURE);
+      // Since we're exiting, who cares if unix_error() isn't async-signal-safe
+      unix_error("kill error");
     }
 
     // NOTE: don't call deletejob(jobs, fg_pid) here
     // Calling kill() will send a SIGCHLD signal to the shell process
     // sigchld_handler will handle calling deletejob()
 
-    // Set flag and signal value so waitfg() knows to output message via
-    // printf()
-    fg_job_interrupt = true;
-    fg_job_interrupt_signal = sig;
-  }
-
-  if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
-    const char msg[18] = "sigprocmask error\n";
-    result = write(STDERR_FILENO, msg, 18);
-    _exit(EXIT_FAILURE);
+    // Set flag so waitfg() knows to output message via printf()
+    // (printf() is not async-signal-safe)
+    fg_signal.interrupted = true;
   }
 
   errno = old_errno;
@@ -530,7 +473,27 @@ void sigint_handler(int sig) {
 void sigtstp_handler(int sig) {
   int old_errno = errno;
 
-  // TODO test08
+  sigset_t full_sigset, old_sigset;
+  int result;
+
+  Sigfillset(&full_sigset);
+
+  Sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset);
+  pid_t fg_pid = fgpid(jobs);
+  Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
+
+  if (fg_pid > 0) {
+    // If  pid  is less than -1, then sig is sent to every process in the
+    // process group whose ID is -pid.
+    if ((result = kill(-fg_pid, sig)) == -1) {
+      // Since we're exiting, who cares if unix_error() isn't async-signal-safe
+      unix_error("kill error");
+    }
+
+    // Set flag so waitfg() knows to output message via printf()
+    // (printf() is not async-signal-safe)
+    fg_signal.stopped = true;
+  }
 
   errno = old_errno;
 }
@@ -740,4 +703,41 @@ handler_t *Signal(int signum, handler_t *handler) {
 void sigquit_handler(int sig) {
   printf("Terminating after receipt of SIGQUIT signal\n");
   exit(1);
+}
+
+/* Error handling wrappers */
+void Sigprocmask(int how, const sigset_t *restrict set,
+                 sigset_t *restrict oldset) {
+  int result = sigprocmask(how, set, oldset);
+  if (result == -1) {
+    unix_error("Sigprocmask error");
+  }
+}
+
+void Sigemptyset(sigset_t *set) {
+  int result = sigemptyset(set);
+  if (result == -1) {
+    unix_error("sigemptyset error");
+  }
+}
+
+void Sigfillset(sigset_t *set) {
+  int result = sigfillset(set);
+  if (result == -1) {
+    unix_error("sigfillset error");
+  }
+}
+
+void Sigaddset(sigset_t *set, int signum) {
+  int result = sigaddset(set, signum);
+  if (result == -1) {
+    unix_error("sigaddset error");
+  }
+}
+
+void Sigdelset(sigset_t *set, int signum) {
+  int result = sigdelset(set, signum);
+  if (result == -1) {
+    unix_error("sigdelset error");
+  }
 }
