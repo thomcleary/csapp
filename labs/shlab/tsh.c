@@ -50,13 +50,15 @@ struct job_t {           /* The job struct */
 struct job_t jobs[MAXJOBS]; /* The job list */
 
 /*
- * A flag and signal value to allow waitfg() to output a message to STDOUT when
- * a foreground process has been sent the SIGINT signal.
- *
- * printf and friends aren't async-signal-safe
+ * Flags to allow waitfg() to output a message to STDOUT when a foreground
+ * process has been sent a signal to interrupt its execution.
+ * (printf and friends aren't async-signal-safe and can't be used in signal
+ * handlers)
  */
-volatile sig_atomic_t fg_job_interrupt = false;
-volatile sig_atomic_t fg_job_interrupt_signal;
+struct fg_signal_flags {
+  volatile sig_atomic_t interrupted;
+  volatile sig_atomic_t stopped;
+} fg_signal;
 /* End global variables */
 
 /* Function prototypes */
@@ -391,11 +393,12 @@ void waitfg(pid_t pid) {
     }
   }
 
-  if (fg_job_interrupt) {
-    printf("Job [%d] (%d) terminated by signal %d\n", jid, pid,
-           fg_job_interrupt_signal);
-
-    fg_job_interrupt = false;
+  if (fg_signal.interrupted) {
+    printf("Job [%d] (%d) terminated by signal %d\n", jid, pid, SIGINT);
+    fg_signal.interrupted = false;
+  } else if (fg_signal.stopped) {
+    printf("Job [%d] (%d) stopped by signal %d\n", jid, pid, SIGTSTP);
+    fg_signal.stopped = false;
   }
 
   if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
@@ -449,11 +452,8 @@ void sigchld_handler(int sig) {
     }
 
     if (WIFSTOPPED(wstatus)) {
-      // TODO: make sure SIGSTP is being handled correctly
-      // Update state of pid job to be ST
-      const char msg[46] = "[sigchld_handler]: WIFSTOPPED not implemented\n";
-      result = write(STDERR_FILENO, msg, 46);
-      _exit(EXIT_FAILURE);
+      struct job_t *job = getjobpid(jobs, pid);
+      job->state = ST;
     } else if (!deletejob(jobs, pid)) {
       const char msg[21] = "Failed to delete job\n";
       result = write(STDERR_FILENO, msg, 21);
@@ -507,10 +507,8 @@ void sigint_handler(int sig) {
     // Calling kill() will send a SIGCHLD signal to the shell process
     // sigchld_handler will handle calling deletejob()
 
-    // Set flag and signal value so waitfg() knows to output message via
-    // printf()
-    fg_job_interrupt = true;
-    fg_job_interrupt_signal = sig;
+    // Set flag so waitfg() knows to output message via printf()
+    fg_signal.interrupted = true;
   }
 
   if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
@@ -530,7 +528,40 @@ void sigint_handler(int sig) {
 void sigtstp_handler(int sig) {
   int old_errno = errno;
 
-  // TODO test08
+  sigset_t full_sigset, old_sigset;
+  pid_t fg_pid;
+  int result;
+
+  // Block signals while accessing and updating global variable jobs
+  if ((result = sigfillset(&full_sigset)) == -1) {
+    const char msg[17] = "sigfillset error\n";
+    result = write(STDERR_FILENO, msg, 17);
+    _exit(EXIT_FAILURE);
+  }
+  if ((result = sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset)) == -1) {
+    const char msg[18] = "sigprocmask error\n";
+    result = write(STDERR_FILENO, msg, 18);
+    _exit(EXIT_FAILURE);
+  }
+
+  if ((fg_pid = fgpid(jobs)) > 0) {
+    // If  pid  is less than -1, then sig is sent to every process in the
+    // process group whose ID is -pid.
+    if ((result = kill(-fg_pid, sig)) == -1) {
+      const char msg[11] = "kill error\n";
+      result = write(STDERR_FILENO, msg, 11);
+      _exit(EXIT_FAILURE);
+    }
+
+    // Set flag so waitfg() knows to output message via printf()
+    fg_signal.stopped = true;
+  }
+
+  if ((result = sigprocmask(SIG_SETMASK, &old_sigset, NULL)) == -1) {
+    const char msg[18] = "sigprocmask error\n";
+    result = write(STDERR_FILENO, msg, 18);
+    _exit(EXIT_FAILURE);
+  }
 
   errno = old_errno;
 }
