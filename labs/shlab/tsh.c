@@ -383,6 +383,7 @@ void do_bgfg(char **argv) {
     job = getjobjid(jobs, id);
     if (job == NULL) {
       printf("%%%d: No such job\n", id);
+      return;
     }
   } else {
     job = getjobpid(jobs, id);
