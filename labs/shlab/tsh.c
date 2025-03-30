@@ -229,7 +229,6 @@ void eval(char *cmdline) {
   }
 
   // parent process
-  // Block signals while accessing and mutating global variable jobs
   Sigprocmask(SIG_BLOCK, &full_sigset, NULL);
 
   if (!addjob(jobs, pid, bg ? BG : FG, cmdline)) {
@@ -238,7 +237,6 @@ void eval(char *cmdline) {
 
   int jid = pid2jid(pid);
 
-  // Unblock signals
   Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
 
   if (bg) {
@@ -344,7 +342,70 @@ bool builtin_cmd(char **argv) {
  * do_bgfg - Execute the builtin bg and fg commands
  */
 void do_bgfg(char **argv) {
-  // TODO: test09
+  assert(argv != NULL && "argv is NULL");
+  assert(*argv != NULL && "*argv is NULL");
+
+  char *cmd = argv[0];
+  char *id_str = argv[1];
+
+  bool is_fg = strncmp(cmd, "fg", strnlen(cmd, 2)) == 0;
+
+  if (id_str == NULL) {
+    printf("%s command requires PID or %%jobid argument\n", cmd);
+    return;
+  }
+
+  int id = -1;
+  bool is_job = false;
+
+  int result = sscanf(id_str, "%%%d", &id);
+  if (result == 1) {
+    if (id < 0) {
+      printf("%s: argument must be a PID or %%jobid\n", cmd);
+      return;
+    }
+    is_job = true;
+  } else {
+    int result = sscanf(id_str, "%d", &id);
+    if (result != 1 || id < 0) {
+      printf("%s: argument must be a PID or %%jobid\n", cmd);
+      return;
+    }
+  }
+
+  struct job_t *job;
+  sigset_t full_sigset, old_sigset;
+
+  Sigfillset(&full_sigset);
+  Sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset);
+
+  if (is_job) {
+    job = getjobjid(jobs, id);
+    if (job == NULL) {
+      printf("%%%d: No such job\n", id);
+    }
+  } else {
+    job = getjobpid(jobs, id);
+    if (job == NULL) {
+      printf("(%d): No such process\n", id);
+      return;
+    }
+  }
+
+  if ((result = kill(-(job->pid), SIGCONT)) == -1) {
+    unix_error("kill error");
+  }
+
+  if (is_fg) {
+    job->state = FG;
+    waitfg(job->pid);
+  } else {
+    job->state = BG;
+    printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+  }
+
+  Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
+
   return;
 }
 
@@ -354,14 +415,13 @@ void do_bgfg(char **argv) {
 void waitfg(pid_t pid) {
   sigset_t block_sigset, suspend_sigset, old_sigset;
 
-  // Build mask to block signals between while loop condition and call to
-  // sigsuspend
+  // Mask to block signals between while loop condition and call to sigsuspend
   Sigemptyset(&block_sigset);
   Sigaddset(&block_sigset, SIGCHLD);
   Sigaddset(&block_sigset, SIGINT);
   Sigaddset(&block_sigset, SIGTSTP);
 
-  // Build mask to unblock signals during call to sigsuspend
+  // Mask to unblock signals during call to sigsuspend
   Sigprocmask(SIG_SETMASK, NULL, &suspend_sigset);
   Sigdelset(&suspend_sigset, SIGCHLD);
   Sigdelset(&suspend_sigset, SIGINT);
@@ -416,6 +476,9 @@ void sigchld_handler(int sig) {
       struct job_t *job = getjobpid(jobs, pid);
       job->state = ST;
     } else if (!deletejob(jobs, pid)) {
+      // Since waitpid() is not passed the WCONTINUED option,
+      // we don't have to handle the WIFCONTINUED case
+
       // Since all signals blocked and we're exiting, who cares if printf isn't
       // async-signal-safe
       printf("Failed to delete job with pid [%d]\n", pid);
