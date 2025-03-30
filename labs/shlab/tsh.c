@@ -49,16 +49,6 @@ struct job_t {           /* The job struct */
 };
 struct job_t jobs[MAXJOBS]; /* The job list */
 
-/*
- * Flags to allow waitfg() to output a message to STDOUT when a foreground
- * process has been sent a signal to interrupt its execution.
- * (printf and friends aren't async-signal-safe and can't be used in signal
- * handlers)
- */
-struct fg_signal_flags {
-  volatile sig_atomic_t interrupted;
-  volatile sig_atomic_t stopped;
-} fg_signal;
 /* End global variables */
 
 /* Function prototypes */
@@ -95,6 +85,7 @@ typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
 
 /* Error handling wrappers */
+void Kill(pid_t pid, int sig);
 void Sigprocmask(int how, const sigset_t *restrict set,
                  sigset_t *restrict oldset);
 void Sigemptyset(sigset_t *set);
@@ -393,9 +384,7 @@ void do_bgfg(char **argv) {
     }
   }
 
-  if ((result = kill(-(job->pid), SIGCONT)) == -1) {
-    unix_error("kill error");
-  }
+  Kill(-(job->pid), SIGCONT);
 
   if (is_fg) {
     job->state = FG;
@@ -429,25 +418,13 @@ void waitfg(pid_t pid) {
   Sigdelset(&suspend_sigset, SIGTSTP);
 
   Sigprocmask(SIG_SETMASK, &block_sigset, &old_sigset);
-
-  int jid = pid2jid(pid);
-
   while (fgpid(jobs) == pid) {
     sigsuspend(&suspend_sigset);
     if (errno != EINTR) {
       unix_error("sigsuspend failed");
     }
   }
-
   Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
-
-  if (fg_signal.interrupted) {
-    printf("Job [%d] (%d) terminated by signal %d\n", jid, pid, SIGINT);
-    fg_signal.interrupted = false;
-  } else if (fg_signal.stopped) {
-    printf("Job [%d] (%d) stopped by signal %d\n", jid, pid, SIGTSTP);
-    fg_signal.stopped = false;
-  }
 }
 
 /*****************
@@ -473,17 +450,28 @@ void sigchld_handler(int sig) {
   while ((pid = waitpid(-1, &wstatus, WNOHANG | WUNTRACED)) > 0) {
     Sigprocmask(SIG_BLOCK, &full_sigset, &old_sigset);
 
+    int jid = pid2jid(pid);
+
+    // Since waitpid() is not passed the WCONTINUED option,
+    // we don't have to handle the WIFCONTINUED case
+
     if (WIFSTOPPED(wstatus)) {
       struct job_t *job = getjobpid(jobs, pid);
       job->state = ST;
-    } else if (!deletejob(jobs, pid)) {
-      // Since waitpid() is not passed the WCONTINUED option,
-      // we don't have to handle the WIFCONTINUED case
+      // cbf using write()
+      printf("Job [%d] (%d) stopped by signal %d\n", jid, pid, SIGTSTP);
+    } else {
+      if (!deletejob(jobs, pid)) {
+        // Since all signals blocked and we're exiting, who cares if printf
+        // isn't async-signal-safe
+        printf("Failed to delete job with pid [%d]\n", pid);
+        exit(EXIT_FAILURE);
+      }
 
-      // Since all signals blocked and we're exiting, who cares if printf isn't
-      // async-signal-safe
-      printf("Failed to delete job with pid [%d]\n", pid);
-      exit(EXIT_FAILURE);
+      if (WIFSIGNALED(wstatus)) {
+        // cbf using write()
+        printf("Job [%d] (%d) terminated by signal %d\n", jid, pid, SIGINT);
+      }
     }
 
     Sigprocmask(SIG_SETMASK, &old_sigset, NULL);
@@ -499,9 +487,7 @@ void sigchld_handler(int sig) {
  */
 void sigint_handler(int sig) {
   int old_errno = errno;
-
   sigset_t full_sigset, old_sigset;
-  int result;
 
   Sigfillset(&full_sigset);
 
@@ -512,18 +498,11 @@ void sigint_handler(int sig) {
   if (fg_pid > 0) {
     // If  pid  is less than -1, then sig is sent to every process in the
     // process group whose ID is -pid.
-    if ((result = kill(-fg_pid, sig)) == -1) {
-      // Since we're exiting, who cares if unix_error() isn't async-signal-safe
-      unix_error("kill error");
-    }
+    Kill(-fg_pid, sig);
 
     // NOTE: don't call deletejob(jobs, fg_pid) here
     // Calling kill() will send a SIGCHLD signal to the shell process
     // sigchld_handler will handle calling deletejob()
-
-    // Set flag so waitfg() knows to output message via printf()
-    // (printf() is not async-signal-safe)
-    fg_signal.interrupted = true;
   }
 
   errno = old_errno;
@@ -536,9 +515,7 @@ void sigint_handler(int sig) {
  */
 void sigtstp_handler(int sig) {
   int old_errno = errno;
-
   sigset_t full_sigset, old_sigset;
-  int result;
 
   Sigfillset(&full_sigset);
 
@@ -549,14 +526,7 @@ void sigtstp_handler(int sig) {
   if (fg_pid > 0) {
     // If  pid  is less than -1, then sig is sent to every process in the
     // process group whose ID is -pid.
-    if ((result = kill(-fg_pid, sig)) == -1) {
-      // Since we're exiting, who cares if unix_error() isn't async-signal-safe
-      unix_error("kill error");
-    }
-
-    // Set flag so waitfg() knows to output message via printf()
-    // (printf() is not async-signal-safe)
-    fg_signal.stopped = true;
+    Kill(-fg_pid, sig);
   }
 
   errno = old_errno;
@@ -770,6 +740,13 @@ void sigquit_handler(int sig) {
 }
 
 /* Error handling wrappers */
+void Kill(pid_t pid, int sig) {
+  int result = kill(pid, sig);
+  if (result == -1) {
+    unix_error("kill error");
+  }
+}
+
 void Sigprocmask(int how, const sigset_t *restrict set,
                  sigset_t *restrict oldset) {
   int result = sigprocmask(how, set, oldset);
