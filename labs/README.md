@@ -7,5 +7,3 @@
 | Attack Lab |    3     |
 | Cache Lab  |    6     |
 | Shell Lab  |    8     |
-| Malloc Lab |    9     |
-| Proxy Lab  |  10-12   |
